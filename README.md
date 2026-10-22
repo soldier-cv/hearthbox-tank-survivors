@@ -56,7 +56,8 @@ http://127.0.0.1:5199/play.html?...&debug=1&seed=42&speed=0.5
 |---|---|
 | [`docs/pitch.md`](docs/pitch.md) | 玩法一页纸、第一分钟、不做什么 |
 | [`docs/levels.md`](docs/levels.md) | 5 个阶段、14 个波次节点、两个 BOSS、地形专属节点 |
-| [`docs/skills.md`](docs/skills.md) | 5 流派 × 4 级 + 终极，卡池与权重 |
+| [`docs/skills.md`](docs/skills.md) | 5 流派的设计意图、每级节奏、硬规则 |
+| [`docs/cards.md`](docs/cards.md) | **25 张卡的完整数值**、卡池规则、抽取权重 |
 | [`docs/tanks.md`](docs/tanks.md) | 8 台坦克、属性点、签名技能、涂装、废铁经济 |
 | [`docs/tank-levels.md`](docs/tank-levels.md) | 每台坦克独立的 1–16 级、4 档外观、4 阶签名进化 |
 | [`docs/enemies.md`](docs/enemies.md) | 11 种敌人、克制关系、预警、精英词缀、压力预算 |
