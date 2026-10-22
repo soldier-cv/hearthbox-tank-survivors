@@ -1,0 +1,14 @@
+node_modules/
+dist/
+coverage/
+.vite/
+*.local
+.env
+.env.*
+!*.example
+/tmp/
+test-results/
+playwright-report/
+
+# 本地验收截图：evidence/ 里的正式存证才入库
+evidence/tmp/

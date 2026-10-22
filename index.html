@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0e10">
+<title>坦克大战 · 幸存者 TANK SURVIVORS</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230b0e10'/%3E%3Crect x='5' y='13' width='15' height='11' rx='2' fill='%23e8a33d'/%3E%3Crect x='19' y='16' width='9' height='4' fill='%23e8a33d'/%3E%3Ccircle cx='12' cy='18' r='4' fill='%230b0e10'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+  <canvas id="game" aria-label="游戏画面"></canvas>
+  <div class="vignette" aria-hidden="true"></div>
+
+  <!-- ============ HUD ============ -->
+  <div id="hud" class="hidden">
+    <div class="hud-top">
+      <div class="hud-clock">
+        <span id="hudTimer">00:00</span>
+        <span class="hud-clock-label">存活</span>
+      </div>
+      <div class="hud-mid">
+        <div class="lv-row">
+          <span class="lv-chip">LV <b id="hudLevel">1</b></span>
+          <div class="xpbar"><i id="xpFill"></i><u id="xpGhost"></u></div>
+          <span class="lv-next" id="hudXpText">0 / 12</span>
+        </div>
+        <div class="bossbar hidden" id="bossBar">
+          <div class="bossbar-label"><span id="bossName">重装坦克</span><span id="bossHpText"></span></div>
+          <div class="bossbar-track"><i id="bossFill"></i></div>
+        </div>
+      </div>
+      <div class="hud-kills">
+        <b id="hudKills">0</b>
+        <span>击毁</span>
+      </div>
+    </div>
+    <div class="hud-players" id="hudPlayers"></div>
+  </div>
+
+  <!-- ============ 标题 ============ -->
+  <section id="screen-title" class="screen screen-title">
+    <div class="title-shell">
+      <div class="kicker">HEARTHBOX ARCADE · CART 001</div>
+      <h1 class="logo">
+        <span class="logo-cn">坦克大战</span>
+        <span class="logo-en">TANK <em>SURVIVORS</em></span>
+      </h1>
+      <p class="tagline">八分钟。无穷的坦克。一堵墙都别留给他们。</p>
+
+      <div class="mode-select" id="modeSelect" role="group" aria-label="游戏人数">
+        <button class="mode" data-mode="1" type="button">
+          <span class="mode-num">1P</span>
+          <span class="mode-name">单人</span>
+        </button>
+        <button class="mode" data-mode="2" type="button">
+          <span class="mode-num">2P</span>
+          <span class="mode-name">双人同屏</span>
+        </button>
+      </div>
+
+      <div class="start-row">
+        <button class="start-btn" id="startBtn" type="button">
+          <kbd>A</kbd><span class="slash">/</span><kbd>空格</kbd><span class="start-word">出发</span>
+        </button>
+        <span class="start-sub">左 / 右 切换人数</span>
+      </div>
+
+      <div class="title-lower">
+        <div class="ctrl-panel">
+          <div class="ctrl-title">操作</div>
+          <ul class="ctrl-list">
+            <li><span>移动</span><b>左摇杆 / WASD</b></li>
+            <li><span>瞄准</span><b>右摇杆 · 松手自动瞄准</b></li>
+            <li><span>冲刺</span><b>A / 空格</b></li>
+            <li><span>炸弹</span><b>X / 左 Shift</b></li>
+            <li><span>暂停</span><b>Start / Esc</b></li>
+          </ul>
+          <p class="ctrl-note">P2：第二只手柄，或方向键 + <kbd>Enter</kbd> 冲刺、<kbd>右 Shift</kbd> 炸弹。</p>
+        </div>
+
+        <div class="roster-panel">
+          <div class="ctrl-title">手柄</div>
+          <div class="pad-row" id="padRow0">
+            <span class="pad-led" id="padLed0"></span>
+            <span class="pad-name" id="padName0">P1 · 等待手柄</span>
+          </div>
+          <div class="pad-row" id="padRow1">
+            <span class="pad-led" id="padLed1"></span>
+            <span class="pad-name" id="padName1">P2 · 等待手柄</span>
+          </div>
+          <p class="ctrl-note">Xbox 手柄即插即用。按任意键可解锁声音。</p>
+          <div class="best-line">最佳战绩 <b id="bestScore">—</b></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 升级 ============ -->
+  <section id="screen-levelup" class="screen hidden">
+    <div class="levelup-wrap">
+      <div class="levelup-head">
+        <span class="levelup-kicker">FIELD PROMOTION</span>
+        <h2>升级 <b id="levelupNum">2</b></h2>
+        <p>任一名玩家选择 · 强化对全队生效</p>
+      </div>
+      <div class="cards" id="cards"></div>
+      <div class="levelup-foot">
+        <span><kbd>←</kbd><kbd>→</kbd> 选择</span>
+        <span><kbd>A</kbd> / <kbd>空格</kbd> 确认</span>
+        <span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 直选</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 暂停 ============ -->
+  <section id="screen-pause" class="screen hidden">
+    <div class="pause-wrap">
+      <div class="panel-kicker">PAUSED</div>
+      <h2 class="panel-title">暂停</h2>
+      <div class="menu" id="pauseMenu">
+        <button class="menu-item" data-act="resume" type="button">继续战斗</button>
+        <button class="menu-item" data-act="mute" type="button"><span id="muteLabel">静音</span></button>
+        <button class="menu-item" data-act="restart" type="button">重新开始</button>
+        <button class="menu-item menu-item-quiet" data-act="quit" type="button">返回标题</button>
+      </div>
+      <p class="pause-note">按 <kbd>Start</kbd> / <kbd>Esc</kbd> 继续</p>
+    </div>
+  </section>
+
+  <!-- ============ 结算 ============ -->
+  <section id="screen-over" class="screen hidden">
+    <div class="result-wrap">
+      <div class="panel-kicker" id="overKicker">MISSION FAILED</div>
+      <h2 class="panel-title" id="overTitle">全员阵亡</h2>
+      <p class="result-sub" id="overSub">再试一次，这次带上僚机。</p>
+      <div class="result-grid" id="resultGrid"></div>
+      <div class="result-actions">
+        <button class="btn-primary" data-act="retry" type="button">再来一局 <kbd>A</kbd></button>
+        <button class="btn-quiet" data-act="quit" type="button">返回标题</button>
+      </div>
+    </div>
+  </section>
+
+  <div id="toast" class="toast" aria-live="polite"></div>
+  <div id="bootHint" class="boot-hint">点击画面或按任意键 · 解锁声音</div>
+</div>
+
+<script src="src/util.js"></script>
+<script src="src/audio.js"></script>
+<script src="src/input.js"></script>
+<script src="src/world.js"></script>
+<script src="src/game.js"></script>
+<script src="src/render.js"></script>
+<script src="src/main.js"></script>
+</body>
+</html>
