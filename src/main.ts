@@ -1,126 +1,253 @@
-import { defineGame, type GameContext, type GameInstance } from '@hearthbox/sdk';
-import { CONFIG as C, COLORS } from './config';
-import { declareOptions, resolveTuning, type Tuning } from './tuning';
-import { drawTank, type TankPaint } from './draw/tank';
-
 /**
- * 第 1 步：验证平台加载链路。
+ * 入口与状态机编排。
  *
- * 这一版不是游戏，是一个"能证明链路通了"的最小件：
- *   - 平台给了画布 → 我们画东西
- *   - 平台给了输入 → 我们读 p1.move
- *   - 平台给了可调项 → 面板里能拖滑杆，画面立刻变
- *   - 平台给了 storage → 退出重进，位置还在
- *
- * 走通之后再把地形、敌人、卡池逐块搬进来（docs/port.md 第 3 步）。
+ * 只做接线：平台循环 → 输入归一 → UI 状态机 → 世界更新 → 相机 → 特效 → 渲染。
+ * 不含规则（game.ts）、不含绘制（render.ts / ui.ts）、不认识具体键位（input.ts）。
  */
+
+import { defineGame, type GameContext, type GameInstance } from '@hearthbox/sdk';
+import { CONFIG, COLORS, THREATS } from './config';
+import { declareOptions, resolveTuning } from './tuning';
+import { InputHub } from './input';
+import { Fx } from './fx';
+import { Audio } from './audio';
+import { RngView, FxRng } from './rng';
+import { World } from './world';
+import { CameraRig } from './camera';
+import { Game, type GameEvent, type RunSummary } from './game';
+import { Renderer } from './render';
+import { Ui, type Screen } from './ui';
+import { MAP_BY_ID, SKINS, TANKS } from './data/exports';
+import {
+  SAVE_KEY,
+  applyResult,
+  levelOf,
+  normalizeProgress,
+  scrapFor,
+  type Progress,
+} from './save';
+
+/** 金手指 id 清单（存档"用过金手指"标记用）。 */
+const CHEAT_IDS = ['move-speed', 'fire-rate', 'xp-rate', 'spawn-rate', 'god-mode', 'inf-bombs'] as const;
+
 export default defineGame({
   id: 'hearthbox.tank-survivors',
 
   async create(ctx: GameContext): Promise<GameInstance> {
     declareOptions(ctx);
-    const tuning: Tuning = resolveTuning(ctx);
+    const tuning = resolveTuning(ctx);
 
-    // 存档往返：证明 ctx.storage 通。位置存的是逻辑坐标。
-    const saved = ctx.storage.get<{ x: number; y: number }>('probe');
-    const player = {
-      x: saved?.x ?? C.width / 2,
-      y: saved?.y ?? C.height / 2,
-      angle: 0,
+    // ---- 存档 ----
+    let progress: Progress = normalizeProgress(ctx.storage.get<unknown>(SAVE_KEY));
+    const saveNow = (): void => {
+      ctx.storage.set(SAVE_KEY, progress);
     };
 
-    const paint: TankPaint = {
-      body: COLORS.p1,
-      light: COLORS.p1Light,
-      tread: COLORS.tread,
+    const rngView = new RngView(ctx.random);
+    const fxRng = new FxRng(Math.floor(ctx.random.next() * 0xffffffff));
+    const fx = new Fx(CONFIG.caps.particles + 200, fxRng);
+    const audio = new Audio(ctx.audio);
+    const input = new InputHub(ctx);
+
+    let game: Game | null = null;
+    let rig: CameraRig | null = null;
+    let renderer: Renderer | null = null;
+    let clock = 0;
+
+    const hooks = {
+      onStart(twoPlayer: boolean): void {
+        startRun(twoPlayer);
+      },
+      onResume(): void {
+        ui.resume();
+      },
+      onRestart(): void {
+        startRun(ui.twoPlayer);
+      },
+      onQuit(): void {
+        game = null;
+        rig = null;
+        renderer = null;
+        audio.musicStop();
+        ui.openGarage();
+      },
+      onExitToShelf(): void {
+        ctx.exit();
+      },
+      onChoose(cardId: string): void {
+        if (!game) return;
+        const res = game.choose(cardId);
+        if (res === 'resume') ui.resume();
+      },
+      onReroll(): void {
+        game?.reroll();
+      },
+      onSave: saveNow,
+      sfx(id: string): void {
+        audio.sfx(id as never);
+      },
     };
 
-    let elapsed = 0;
-    let saveTimer = 0;
+    const ui = new Ui(hooks, input);
+    ui.progress = progress;
+    ui.openTitle();
+
+    function startRun(twoPlayer: boolean): void {
+      const map = MAP_BY_ID[progress.selected.map] ?? MAP_BY_ID.proving;
+      const p1 = TANKS.find((t) => t.id === progress.selected.p1) ?? TANKS[0]!;
+      const p2def = TANKS.find((t) => t.id === progress.selected.p2) ?? TANKS[1]!;
+      const tanks = twoPlayer ? [p1, p2def] : [p1];
+      const levels = tanks.map((t) => levelOf(progress, t.id));
+      const threat = Math.min(4, Math.max(1, progress.selected.threat));
+
+      const world = new World(map, rngView);
+      rig = new CameraRig(world.w, world.h, twoPlayer);
+      game = new Game(world, {
+        tuning,
+        fx,
+        audio,
+        rng: rngView,
+        onEvent: handleEvent,
+        cheat: (id) => ctx.cheats.value(id),
+        enabled: (id) => ctx.options.enabled(id),
+        setting: (id) => ctx.options.value(id) ?? false,
+        rumble: (s, w, ms) => ctx.rumble(s, w, ms),
+      });
+      game.threat = threat;
+      game.start(tanks, levels, threat);
+      renderer = new Renderer(game, rig);
+
+      // 涂装：只换 body/light。
+      for (const p of game.players) {
+        const skinId = progress.tanks[p.tank.id]?.skin ?? 'factory';
+        const sk = SKINS.find((s) => s.id === skinId);
+        p.skin = sk && sk.body ? { body: sk.body, light: sk.light } : null;
+      }
+
+      ui.resume();
+      audio.musicStart();
+    }
+
+    function handleEvent(e: GameEvent): void {
+      switch (e.type) {
+        case 'levelup':
+          ui.openLevelup();
+          break;
+        case 'levelupMore':
+        case 'wave':
+          break;
+        case 'toast':
+          ui.toast(e.text);
+          break;
+        case 'boss':
+          ui.toast(`${e.name} 已被摧毁`);
+          break;
+        case 'evolve':
+          ui.toast('进化解锁');
+          break;
+        case 'over':
+        case 'win': {
+          finishRun(e.data);
+          break;
+        }
+      }
+    }
+
+    function finishRun(summary: RunSummary): void {
+      const win = summary.win;
+      const firstClear = win && progress.clears === 0;
+      const mul = (THREATS[Math.min(4, Math.max(1, game?.threat ?? 1)) - 1] ?? THREATS[0]).scrap;
+      summary.scrap = scrapFor(summary.kills, summary.time, summary.bosses, win, game?.threat ?? 1, firstClear);
+      // firstClear 奖励不吃威胁倍率（一次性荣誉奖励）
+      if (firstClear) summary.scrap += CONFIG.scrap.firstClear;
+      void mul;
+      summary.win = win;
+      const g = game;
+      const cheated = CHEAT_IDS.some((id) => ctx.options.enabled(id)) || progress.cheated;
+      applyResult(progress, {
+        time: summary.time,
+        kills: summary.kills,
+        level: summary.level,
+        score: summary.score,
+        scrap: summary.scrap,
+        win: summary.win,
+        bossKilled: summary.bosses,
+        threat: g?.threat ?? 1,
+        cheated,
+        perPlayer: summary.perPlayer,
+      });
+      saveNow();
+      audio.musicStop();
+      ui.progress = progress;
+      ui.openResult(summary, win);
+    }
+
+    // ===================================================================
+    // 每帧
+    // ===================================================================
 
     function update(dt: number): void {
-      elapsed += dt;
+      clock += dt;
+      const screen: Screen = ui.screen;
+      const inMenu = screen !== 'playing';
+      input.sample(inMenu);
+      ui.update(game, dt);
 
-      const speed = tuning.moveSpeed(190);
-      const move = ctx.input.p1.move;
-      player.x += move.x * speed * dt;
-      player.y += move.y * speed * dt;
+      // 设置项每帧同步（随时可改）
+      fx.shakeScale = ctx.options.choice('screen-shake') === 'off' ? 0 : ctx.options.choice('screen-shake') === 'weak' ? 0.4 : 1;
 
-      // 朝向跟移动方向，没移动就保持。
-      if (move.x !== 0 || move.y !== 0) {
-        player.angle = Math.atan2(move.y, move.x);
+      if (game && rig && !inMenu) {
+        const p1 = game.players[0]!;
+        const p2 = game.players.length > 1 ? game.players[1]! : null;
+        const downed = !!p2 && p2.downed;
+        const split = ctx.options.choice('split-mode') as 'auto' | 'never' | 'always';
+        if (p1.alive) {
+          rig.update(dt, p1, p2 && p2.alive ? p2 : null, p1.turretAngle, split, downed);
+        } else if (p2 && p2.alive) {
+          rig.update(dt, p2, null, p2.turretAngle, split, true);
+        }
+        game.update(dt, [input.p1, input.p2]);
+        if (rig.mode === 'split') ui.rigSplit = true;
+        else ui.rigSplit = false;
+        // 强制合屏：升级与暂停期间
+        if (ui.screen !== 'playing') rig.forceMerge(0.6);
+      } else if (rig) {
+        rig.forceMerge(0.3);
+        const g = game;
+        if (g) {
+          const p1 = g.players[0]!;
+          rig.update(dt, p1, null, p1.turretAngle, 'auto', true);
+        }
+        ui.rigSplit = false;
       }
 
-      // 边界：留出车体半径。
-      const r = 14;
-      player.x = Math.min(C.width - r, Math.max(r, player.x));
-      player.y = Math.min(C.height - r, Math.max(r, player.y));
-
-      // 每秒最多落盘一次（平台侧也有节流，这里只是别每帧都调）。
-      saveTimer += dt;
-      if (saveTimer >= 1) {
-        saveTimer = 0;
-        ctx.storage.set('probe', { x: player.x, y: player.y });
-      }
+      fx.update(dt);
     }
 
     function render(): void {
       const g = ctx.ctx2d;
-
-      // 平台可能在上一局改过这些状态，每帧开头统一重置。
       g.globalAlpha = 1;
       g.globalCompositeOperation = 'source-over';
-      g.lineWidth = 1;
-      g.textAlign = 'center';
-      g.textBaseline = 'middle';
-      g.imageSmoothingEnabled = true;
-
       g.fillStyle = COLORS.void;
-      g.fillRect(0, 0, C.width, C.height);
+      g.fillRect(0, 0, CONFIG.width, CONFIG.height);
 
-      // 一层网格，用来确认坐标系与缩放是否正确。
-      g.strokeStyle = COLORS.grid;
-      g.beginPath();
-      for (let x = 0; x <= C.width; x += C.tile) {
-        g.moveTo(x + 0.5, 0);
-        g.lineTo(x + 0.5, C.height);
+      if (game && rig && renderer) {
+        const scale = rig.merged.zoom;
+        renderer.render(g, fx, scale);
       }
-      for (let y = 0; y <= C.height; y += C.tile) {
-        g.moveTo(0, y + 0.5);
-        g.lineTo(C.width, y + 0.5);
-      }
-      g.stroke();
-
-      // 呼吸光晕：证明 render 每帧都在跑，不是定格。
-      const pulse = 0.12 + Math.sin(elapsed * 2) * 0.05;
-      g.fillStyle = `rgba(242,177,60,${pulse})`;
-      g.beginPath();
-      g.arc(player.x, player.y, 34, 0, Math.PI * 2);
-      g.fill();
-
-      drawTank(g, player.x, player.y, player.angle, 14, paint);
-
-      // HUD：证明 fillText 与中文渲染正常。
-      g.fillStyle = COLORS.textBright;
-      g.font = '18px monospace';
-      g.fillText('坦克幸存者 · 链路验证', C.width / 2, 28);
-
-      g.fillStyle = COLORS.text;
-      g.font = '12px monospace';
-      g.fillText('方向键 / WASD 移动 · 退出后位置会被记住', C.width / 2, C.height - 34);
-
-      if (ctx.options.enabled('god-mode')) {
-        g.fillStyle = COLORS.heal;
-        g.fillText('无敌（金手指）已开启', C.width / 2, C.height - 16);
-      }
+      ui.render(g, game, clock);
     }
 
     return {
       update,
       render,
-      dispose() {
-        // 平台在退出时还会 flush 一次，这里只是确保最后一次位置被写到内存副本。
-        ctx.storage.set('probe', { x: player.x, y: player.y });
+      pause(): void {
+        saveNow();
+      },
+      dispose(): void {
+        audio.dispose();
+        saveNow();
+        fx.clear();
       },
     };
   },
