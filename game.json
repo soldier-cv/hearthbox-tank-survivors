@@ -1,0 +1,13 @@
+{
+  "id": "hearthbox.tank-survivors",
+  "name": "坦克幸存者",
+  "summary": "八分钟。八台坦克，一条活到底的战线。",
+  "version": "0.1.0",
+  "sdk": "^0.1.0",
+  "entry": "game.js",
+  "display": { "width": 960, "height": 540, "pixelArt": false, "scale": "fit" },
+  "players": { "min": 1, "max": 2 },
+  "input": ["pad", "keyboard"],
+  "pointer": "hidden",
+  "license": "MIT"
+}

@@ -1,0 +1,71 @@
+- generic [active] [ref=f3e1]:
+  - heading "画笔刷页" [level=1] [ref=f3e2]
+  - paragraph [ref=f3e3]:
+    - text: 这一页调用的是游戏里的
+    - code [ref=f3e4]: drawTank()
+    - text: ，所以所见即游戏里所得。 没有贴图，全部是 Canvas 参数化绘制。
+  - generic [ref=f3e5]:
+    - heading "八台坦克 · 王牌外观（Lv12）" [level=2] [ref=f3e6]
+    - generic [ref=f3e7]:
+      - generic [ref=f3e8]: 铁砧ANVIL-01
+      - generic [ref=f3e11]: 回声ECHO-02
+      - generic [ref=f3e14]: 港湾BASTION-03
+      - generic [ref=f3e17]: 长矛LANCE-04
+      - generic [ref=f3e20]: 熔炉FURNACE-05
+      - generic [ref=f3e23]: 电弧ARC-06
+      - generic [ref=f3e26]: 蜂群SWARM-07
+      - generic [ref=f3e29]: 终焉MK-II
+    - heading "外观进化 · 以铁砧为例（Lv 1 / 4 / 8 / 12）" [level=2] [ref=f3e32]
+    - generic [ref=f3e33]:
+      - generic [ref=f3e34]: 原型Lv 1
+      - generic [ref=f3e37]: 定型Lv 4
+      - generic [ref=f3e40]: 精工Lv 8
+      - generic [ref=f3e43]: 王牌Lv 12
+    - heading "五种涂装 · 铁砧 Lv8（只换车体色，履带与描边不变）" [level=2] [ref=f3e46]
+    - generic [ref=f3e47]:
+      - generic [ref=f3e48]: 出厂factory
+      - generic [ref=f3e51]: 荒原棕wasteland
+      - generic [ref=f3e54]: 极地白arctic
+      - generic [ref=f3e57]: 夜战黑night
+      - generic [ref=f3e60]: 警告黄hazard
+    - heading "全表：八台坦克 × 四档外观（32 种形态）" [level=2] [ref=f3e63]
+    - generic [ref=f3e64]:
+      - generic [ref=f3e65]: 铁砧 · 原型ANVIL-01
+      - generic [ref=f3e68]: 铁砧 · 定型ANVIL-01
+      - generic [ref=f3e71]: 铁砧 · 精工ANVIL-01
+      - generic [ref=f3e74]: 铁砧 · 王牌ANVIL-01
+    - generic [ref=f3e77]:
+      - generic [ref=f3e78]: 回声 · 原型ECHO-02
+      - generic [ref=f3e81]: 回声 · 定型ECHO-02
+      - generic [ref=f3e84]: 回声 · 精工ECHO-02
+      - generic [ref=f3e87]: 回声 · 王牌ECHO-02
+    - generic [ref=f3e90]:
+      - generic [ref=f3e91]: 港湾 · 原型BASTION-03
+      - generic [ref=f3e94]: 港湾 · 定型BASTION-03
+      - generic [ref=f3e97]: 港湾 · 精工BASTION-03
+      - generic [ref=f3e100]: 港湾 · 王牌BASTION-03
+    - generic [ref=f3e103]:
+      - generic [ref=f3e104]: 长矛 · 原型LANCE-04
+      - generic [ref=f3e107]: 长矛 · 定型LANCE-04
+      - generic [ref=f3e110]: 长矛 · 精工LANCE-04
+      - generic [ref=f3e113]: 长矛 · 王牌LANCE-04
+    - generic [ref=f3e116]:
+      - generic [ref=f3e117]: 熔炉 · 原型FURNACE-05
+      - generic [ref=f3e120]: 熔炉 · 定型FURNACE-05
+      - generic [ref=f3e123]: 熔炉 · 精工FURNACE-05
+      - generic [ref=f3e126]: 熔炉 · 王牌FURNACE-05
+    - generic [ref=f3e129]:
+      - generic [ref=f3e130]: 电弧 · 原型ARC-06
+      - generic [ref=f3e133]: 电弧 · 定型ARC-06
+      - generic [ref=f3e136]: 电弧 · 精工ARC-06
+      - generic [ref=f3e139]: 电弧 · 王牌ARC-06
+    - generic [ref=f3e142]:
+      - generic [ref=f3e143]: 蜂群 · 原型SWARM-07
+      - generic [ref=f3e146]: 蜂群 · 定型SWARM-07
+      - generic [ref=f3e149]: 蜂群 · 精工SWARM-07
+      - generic [ref=f3e152]: 蜂群 · 王牌SWARM-07
+    - generic [ref=f3e155]:
+      - generic [ref=f3e156]: 终焉 · 原型MK-II
+      - generic [ref=f3e159]: 终焉 · 定型MK-II
+      - generic [ref=f3e162]: 终焉 · 精工MK-II
+      - generic [ref=f3e165]: 终焉 · 王牌MK-II

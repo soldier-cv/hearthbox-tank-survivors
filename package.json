@@ -1,0 +1,18 @@
+{
+  "name": "tank-survivors",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "preview-sheet": "vite build --mode sheet"
+  },
+  "dependencies": {
+    "@hearthbox/sdk": "file:../hearthbox/packages/sdk"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "vite": "^6.0.7"
+  }
+}

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>坦克幸存者 · 画笔刷页</title>
+<style>
+  :root {
+    --bg: #0b0e10;
+    --panel: #12181c;
+    --line: #242f36;
+    --text: #9a9aa8;
+    --bright: #f3ecdd;
+    --accent: #f2b13c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--bright);
+    font: 13px/1.5 ui-monospace, monospace;
+    padding: 24px;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; font-weight: 600; }
+  .sub { color: var(--text); margin: 0 0 20px; }
+  h2 { font-size: 13px; color: var(--accent); margin: 28px 0 10px; font-weight: 600; }
+  .grid { display: flex; flex-wrap: wrap; gap: 10px; }
+  .cell {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 8px;
+    text-align: center;
+  }
+  .cell canvas { display: block; }
+  .cell .label { font-size: 11px; color: var(--text); margin-top: 4px; }
+  .cell .label b { color: var(--bright); font-weight: 500; }
+  .note { color: var(--text); font-size: 12px; margin: -4px 0 10px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+  .real-size {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 14px 16px;
+    gap: 22px;
+  }
+  .rs-cell { text-align: center; }
+  .rs-cell canvas { display: block; }
+  .rs-cell .label { font-size: 10px; color: var(--text); margin-top: 2px; }
+  .notes { color: var(--text); font-size: 12px; padding-left: 20px; margin: 0; }
+  .notes li { margin-bottom: 3px; }
+  .notes b { color: var(--bright); font-weight: 500; }
+</style>
+</head>
+<body>
+  <h1>画笔刷页</h1>
+  <p class="sub">
+    这一页调用的是游戏里的 <code>drawTank()</code>，所以<b>所见即游戏里所得</b>。
+    没有贴图，全部是 Canvas 参数化绘制。
+  </p>
+  <div id="root"></div>
+  <script type="module" src="./sheet.ts"></script>
+</body>
+</html>
