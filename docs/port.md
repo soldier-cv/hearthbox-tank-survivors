@@ -1,0 +1,131 @@
+# 移植与适配方案
+
+> 目标不是"能跑"，是**完全符合平台契约**：单文件 ESM、平台循环、平台输入、平台存档、平台可调项（金手指 / 设置 / 成就）。
+> 参考：`../../hearthbox/docs/game-sdk.md`、`porting.md`、`tuning.md`、`plugins.md`。
+
+## 1. 现状与目标
+
+| 项 | 现在（demo） | 目标 |
+|---|---|---|
+| 加载 | `index.html` + 7 个 `<script>`，挂 `window.TS` | `game.js` 单文件 ESM，默认导出 `defineGame()` |
+| 主循环 | 自有 rAF + 累积器 | 平台驱动，`dt` 恒为 `1/60` |
+| 输入 | `navigator.getGamepads()` + 键盘监听 | 只读 `ctx.input` |
+| 存档 | `localStorage`（`util.js` 两处） | `ctx.storage` |
+| 随机 | `Math.random()` 17 处 | `ctx.random` |
+| UI | 80 处 DOM 操作，全在 `main.js` | 全部画在 `ctx.ctx2d` |
+| 音频 | 自建 `AudioContext` | `ctx.audio.ctx` + `music`/`sfx` 总线 |
+| 可调项 | 无 | 金手指 6 项 / 设置 4 项 / 成就 6 项 |
+
+## 2. 目标结构
+
+```
+tank-survivors/
+├── game.json              平台清单
+├── package.json           @hearthbox/sdk: file:../hearthbox/packages/sdk
+├── tsconfig.json
+├── vite.config.ts         打包成单文件 game.js，SDK 内联
+├── docs/                  设计文档（pitch / levels / skills / systems / art / world）
+├── src/
+│   ├── main.ts            defineGame 入口 + 状态机 + 接线，只做编排
+│   ├── config.ts          常量：分辨率、色板、技能表、敌人表、波次表
+│   ├── tuning.ts          可调量 + declareOptions() + resolveTuning()
+│   ├── save.ts            存档读写与迁移
+│   ├── world.ts           地形生成与碰撞
+│   ├── game.ts            实体与规则（update 侧）
+│   ├── render.ts          全部绘制（render 侧）
+│   ├── ui.ts              画布内菜单：标题 / 暂停 / 升级 / 结算
+│   ├── input.ts           把 ctx.input 归一成"动作"
+│   └── audio.ts           用 ctx.audio 合成音效
+└── evidence/              验收截图
+```
+
+**关键分层**：`game.ts` 不知道 `ctx.input`，只收到归一化后的动作；`render.ts` 不知道规则，只读状态。`ui.ts` 是唯一同时看输入与状态的地方。
+
+## 3. 四步改造（每步都能跑）
+
+### 第 1 步：能加载（半天）
+
+1. 加 `game.json`、`package.json`、`tsconfig.json`、`vite.config.ts`
+2. 新建 `src/main.ts`：`defineGame({ id, create })`，画一个背景色 + 一个方块证明链路通
+3. `npx vite build` → `dist/game.js`
+4. 平台 `pnpm dev`，货架上出现"坦克幸存者"，点进去能看见方块
+
+**这一步不碰任何旧代码**，先用空壳证明"平台能加载我"。**旧代码留在仓库里当参考**，逐步搬。
+
+### 第 2 步：玩法搬进来（1 天）
+
+按依赖顺序搬，每搬完一块就能玩：
+
+| 顺序 | 搬什么 | 从哪 |
+|---|---|---|
+| 1 | 地形生成与碰撞 | `world.js` → `src/world.ts`（`Math.random` → `ctx.random`） |
+| 2 | 玩家移动 + 瞄准 + 射击 + 冲刺 | `game.js` 第 400–660 行 |
+| 3 | 敌人与刷怪 | `game.js` 第 975–1100 行 + 波次表 |
+| 4 | 碰撞与伤害 | `game.js` 命中判定段 |
+| 5 | 经验、升级、卡池 | `game.js` 第 1520–1630 行，卡池换成新设计 |
+| 6 | BOSS | `game.js` 第 1021–1100 行 |
+| 7 | 绘制 | `render.js` 全量，改成 960×540 坐标系 |
+
+**搬的时候同步做三件事**，不要留到最后：
+- 所有 `Math.random()` → `ctx.random`
+- 所有裸数值 → `config.ts` / `baseline`
+- 所有 `document.*` → 删掉，对应功能进 `ui.ts`
+
+### 第 3 步：UI 搬进画布（1 天）
+
+这是唯一的重写。按玩家看到频率排序：
+
+| 优先级 | 界面 | 内容 | 状态 |
+|---|---|---|---|
+| 1 | HUD | 存活时间、等级、经验条、击毁、血条、炸弹、护盾 | 一直在 |
+| 2 | 升级选卡 | 3 张卡、焦点框、流派色条、等级点 | 每次升级 |
+| 3 | 暂停 | 继续 / 重选人数 / 金手指提示 / 退出 | 随时 |
+| 4 | 结算 | 时间、击毁、得分、新纪录、重开 / 退出 | 每局结束 |
+| 5 | 标题 | 单双人选择、最佳战绩、操作提示 | 每局开始 |
+
+**焦点状态是唯一的难点**：每个菜单维护 `focus` 索引，`up/down` 移动、`south` 确认、`east` 返回。平台不提供画布内焦点系统，自己写（约 60 行）。
+
+### 第 4 步：平台能力接线（半天）
+
+| 能力 | 接法 |
+|---|---|
+| 存档 | `ctx.storage.get('progress')` / `.set()`，BOSS 击杀与通关立刻写 |
+| 金手指 | `tuning.ts` 里 `declareOptions(ctx)` + `resolveTuning(ctx)`，逻辑只读 `tuning` |
+| 设置 | 同上，`scope: 'setting'`；震动、伤害数字、自动瞄准读 `tuning` |
+| 成就 | `scope: 'status'`，进游戏时声明快照 |
+| 音频 | 接 `ctx.audio.sfx`，暂停时由平台挂起 |
+| 震动 | `ctx.rumble(strong, weak, ms)`，受击与爆炸时调用 |
+| 退出 | 暂停菜单的"退出"调 `ctx.exit()` |
+
+## 4. 已知的坑
+
+| 坑 | 说明 | 对策 |
+|---|---|---|
+| 空格既是冲刺又是确认 | 平台把 `Space` 映射到 `south` | 由状态机分流：非菜单时 `south` = 冲刺，菜单时 = 确认。不要同时读 `keyboard.pressed('Space')` |
+| 双人键位冲突 | 平台键盘层只有一套 `south` | 双人模式第二人主要靠第二只手柄；键盘玩家共用一套动作键（同屏协作，不冲突） |
+| `ctx.input.players` 长度恒为 4 | 未连接的 `connected === false` | 开双人前检查 `players[1].connected`，否则退化为单人并提示 |
+| 存档 `status` 值不会自动刷新 | 平台只在 `declare` 时取值 | 进游戏声明一次快照；不承诺会话内实时更新 |
+| 面板手柄不可用（平台 M3 未做） | 金手指面板只能鼠标/键盘 | 游戏内**不依赖**平台面板；关键操作（选卡、暂停）自己画 |
+| `Math.random` 复现不了 | 平台不改 `Math.random` | 全部换 `ctx.random`，`?seed=42` 可复现整局 |
+| 电视上 12px 中文字糊 | 系统字体渲染 | 正文最小 12px，重要信息用图形+短标签 |
+| 首帧 `ctx2d` 状态残留 | 平台可能在上一局改过 `lineWidth`、`font` | `render()` 开头统一重置：`textAlign`、`lineWidth`、`globalAlpha`、`imageSmoothingEnabled` |
+
+## 5. 提交粒度
+
+每步一个提交，可回滚、可单独验收：
+
+```
+feat: 平台清单与构建配置，货架能识别
+feat: 地形、移动、射击链路
+feat: 敌人、波次、伤害
+feat: 技能体系与三选一
+feat: BOSS 与结算
+feat: 画布内 UI（HUD / 暂停 / 升级 / 结算 / 标题）
+feat: 平台可调项接线（金手指 / 设置 / 成就）
+test: 金手指生效与存档往返
+docs: 验收截图
+```
+
+## 6. 验收标准
+
+见 `docs/acceptance.md`。**没有截图的完成不算完成。**
