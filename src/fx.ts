@@ -36,10 +36,10 @@ export type FxId =
 export type ShakeId = 'shakeHit' | 'shakeBlast' | 'shakeBoss' | 'shakeNova';
 
 const SHAKE: Record<ShakeId, { amp: number; time: number }> = {
-  shakeHit: { amp: 3, time: 0.08 },
-  shakeBlast: { amp: 6, time: 0.12 },
-  shakeBoss: { amp: 10, time: 0.18 },
-  shakeNova: { amp: 14, time: 0.22 },
+  shakeHit: { amp: 2, time: 0.06 },
+  shakeBlast: { amp: 3.5, time: 0.09 },
+  shakeBoss: { amp: 7, time: 0.16 },
+  shakeNova: { amp: 9, time: 0.2 },
 };
 
 /** 绘制层：只按层画，不排序。 */
@@ -456,6 +456,8 @@ export class Fx {
 
   addShake(id: ShakeId): void {
     if (this.shakeScale <= 0) return;
+    // 正在震的时候不接受同级或更弱的请求，否则密集爆炸会把 0.09s 无限续期
+    if (this.shakeTime > 0 && SHAKE[id].amp <= this.shakeAmp) return;
     const s = SHAKE[id];
     if (s.time > this.shakeTime) this.shakeTime = s.time;
     if (s.amp > this.shakeAmp) this.shakeAmp = s.amp;

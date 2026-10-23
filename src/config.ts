@@ -50,9 +50,13 @@ export const CONFIG = {
     maxHitRatio: 0.3,
     maxChargedHitRatio: 0.4,
   },
+  /** 特效。 */
+  fx: {
+    /** 爆炸半径达到这个值才震屏（普通子弹的爆炸不震）。 */
+    bigBlast: 50,
+  },
   /** 实体上限，超出即丢弃新增（帧预算保护）。 */
-  caps: {
-    enemies: 200,
+  caps: {    enemies: 200,
     bullets: 400,
     ebullets: 400,
     particles: 900,

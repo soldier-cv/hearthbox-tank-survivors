@@ -161,6 +161,22 @@ npx vite build --mode zoom    # dist-zoom/ 放大 420px 查比例与层次
 该文件末尾有"已验证（smoke 级）"一节，记录**真正跑过**的项目，以及一份
 "已知未验证"清单。不要把两者混为一谈。
 
+## 对照版 v1（A/B 用）
+
+- 目录：`../tank-survivors-v1/`，**不在本仓库里**，是独立的平台游戏。
+  炉边的 dev server 会按目录自动发现，货架上显示「坦克幸存者 v1（对照）」。
+- 存档按 `game.json` 的 id 分开（`hearthbox.tank-survivors.v1`），和新版互不影响。
+- 重新生成：
+
+  ```bash
+  git archive --format=tar <v1 提交> | tar -x -C ../tank-survivors-v1
+  # 改 game.json：id 加 .v1 后缀、name 加「（对照）」
+  cd ../tank-survivors-v1 && pnpm install --ignore-workspace && npx vite build
+  ```
+
+- 用途：比技能手感、特效密度、卡面信息量。**改新版前先在 v1 里看一眼"原来是什么样"**，
+  避免又删掉一个自己没意识到的细节。
+
 ## 已知的平台限制
 
 | 限制 | 影响 | 对策 |

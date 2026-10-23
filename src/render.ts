@@ -578,6 +578,17 @@ export class Renderer {
         g.strokeStyle = COLORS.void;
         g.lineWidth = 1.5;
         g.strokeRect(k.x - 9, k.y - 7, 18, 14);
+        // 刚投放的 4 秒：扩散脉冲，避免"掉在地上没人看见"
+        if (k.t < 4) {
+          const p = (k.t % 1) / 1;
+          g.globalAlpha = (1 - p) * 0.6;
+          g.strokeStyle = k.color;
+          g.lineWidth = 2;
+          g.beginPath();
+          g.arc(k.x, k.y, 12 + p * 18, 0, Math.PI * 2);
+          g.stroke();
+          g.globalAlpha = 1;
+        }
         g.fillStyle = COLORS.void;
         if (k.kind === 'repair') {
           g.fillRect(k.x - 5, k.y - 1.5, 10, 3);

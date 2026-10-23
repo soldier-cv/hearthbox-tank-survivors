@@ -470,6 +470,16 @@ export class Ui {
     g.fillStyle = COLORS.textDim;
     g.fillText('存活', 16, 37);
 
+    // 下一份补给的倒计时：不写出来，玩家永远不知道有东西会掉
+    const nextSupply = game.suppliesLeft[0];
+    if (nextSupply !== undefined) {
+      const left = Math.max(0, nextSupply - game.time);
+      g.textAlign = 'left';
+      g.font = '9px monospace';
+      g.fillStyle = COLORS.heal;
+      g.fillText(`补给 ${formatTime(left)}`, 52, 37);
+    }
+
     g.textAlign = 'center';
     g.fillStyle = COLORS.p1;
     g.font = '16px monospace';

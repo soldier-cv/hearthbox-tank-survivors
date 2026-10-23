@@ -373,6 +373,8 @@ export interface Player {
   reactT: number;
   /** 拾取漩涡冷却。 */
   shockT: number;
+  /** 自动瞄准锁定的敌人（防炮塔来回甩）。 */
+  aimId: number;
   /** 应急维修包计时。 */
   medCd: number;
 }
@@ -644,6 +646,8 @@ export class Game {
   offers: CardOffer[] = [];
   /** 已拥有的装置 → 改装方向 id（null = 只拿了基础）。 */
   owned = new Map<string, string | null>();
+  /** 拿到这张卡时是第几次选择（用来让改装晚两步出现）。 */
+  private ownedAt = new Map<string, number>();
   /** 连续几次升级没出金/红。 */
   private pity = 0;
   /** 本局做过几次选择（红卡时间窗用）。 */
@@ -696,6 +700,7 @@ export class Game {
     this.pendingLevels = 0;
     this.offers = [];
     this.owned.clear();
+    this.ownedAt.clear();
     this.pity = 0;
     this.picksMade = 0;
     this.prototypesTaken = 0;
@@ -839,6 +844,7 @@ export class Game {
       lastHurt: -99,
       reactT: 0,
       shockT: 0,
+      aimId: -1,
       medCd: 0,
     };
     this.recalc(p);
@@ -1135,12 +1141,15 @@ export class Game {
     // ---- 瞄准 ----
     const autoOn = this.o.setting('auto-aim') !== false;
     const assist = Number(this.o.setting('aim-assist') ?? 0.6);
-    const target = this.nearestEnemy(p.x, p.y, p.st.range, false);
+    // 目标锁定：新的目标必须明显更近才换，避免两个敌人之间来回甩炮塔（"摇头"）
+    const target = this.aimPick(p);
     let want = p.angle;
     if (inp.aiming) want = inp.aimAngle;
     else if (autoOn && target) want = Math.atan2(target.y - p.y, target.x - p.x);
-    const turn = inp.aiming ? 0.45 + assist * 0.4 : autoOn && target ? 0.3 + assist * 0.5 : 0.5;
-    p.turretAngle += shortAngle(want, p.turretAngle) * Math.min(1, turn);
+    // 转向速度按秒算，不再按帧 —— 帧率波动时炮塔不会抽一下
+    const turnRate = inp.aiming ? 16 + assist * 6 : autoOn && target ? 11 : 8;
+    const k = 1 - Math.exp(-turnRate * dt);
+    p.turretAngle += shortAngle(want, p.turretAngle) * k;
 
     // ---- 签名：静止 ----
     if (!p.moving) p.still += dt;
@@ -1351,6 +1360,30 @@ export class Game {
     if (p.index === 0) {
       this.o.fx.vignette = lowRatio < 0.3 ? Math.min(1, (0.3 - lowRatio) / 0.3) : 0;
     }
+  }
+
+  /**
+   * 自动瞄准选目标（带滞回）。
+   *
+   * 直接取"最近"会让炮塔在两个距离相近的敌人之间每帧来回甩，
+   * 看起来就是坦克在摇头。这里让当前目标一直打到它明显更远为止。
+   */
+  private aimPick(p: Player): Enemy | null {
+    const near = this.nearestEnemy(p.x, p.y, p.st.range, false);
+    if (!near) {
+      p.aimId = -1;
+      return null;
+    }
+    if (p.aimId >= 0) {
+      const cur = this.enemies.find((e) => e.id === p.aimId && e.alive && !e.dead);
+      if (cur) {
+        const dc = dist2(p.x, p.y, cur.x, cur.y);
+        const dn = dist2(p.x, p.y, near.x, near.y);
+        if (dc <= dn * 1.6) return cur;
+      }
+    }
+    p.aimId = near.id;
+    return near;
   }
 
   /** 最近敌人。ignoreGrass=true 时忽略草丛里的（视线挡住的）。 */
@@ -2463,13 +2496,14 @@ export class Game {
       if (e.dead) killed.push(e);
     }
     this.o.fx.blast(x, y, r);
+    // 普通子弹的爆炸不震屏 —— 否则高爆/燃油地雷一起上时画面会一直在抖
+    if (r >= CONFIG.fx.bigBlast) this.o.fx.addShake('shakeBlast');
     this.world.splash(x, y, r, dmg * b.wallDmg * 1.4, this.scratch);
     if (b.doubleBlast) this.pushDelayedBlast(x, y, r * 0.6, dmg);
     if (b.chainBlast > 0 && killed.length > 0) {
       this.chainExplode(killed, b, 0);
     }
     this.o.audio.sfx('blast');
-    this.o.fx.addShake('shakeBlast');
   }
 
   /** 连锁反应：最多 3 层、逐层 ×0.6、精英不连锁。 */
@@ -3499,6 +3533,7 @@ export class Game {
       this.dropSupply(pos.x, pos.y, 'repair');
       const pos2 = this.world.randomFreePoint(pos.x, pos.y, 120, p.tank.amphibious);
       this.dropSupply(pos2.x, pos2.y, 'bomb');
+      this.emit({ type: 'toast', text: '补给已投放 · 白十字回血 / 黄点加炸弹' });
     }
 
     // 地形节点
@@ -3695,13 +3730,16 @@ export class Game {
     });
   }
 
-  /** 可以改装的卡（拥有但还没选方向）。 */
+  /** 可以改装的卡：拥有、没选过方向，且拿到之后至少又选过 2 次卡。 */
   private upgradePool(): CardDef[] {
     const out: CardDef[] = [];
     for (const [id, branchId] of this.owned) {
       if (branchId) continue;
       const card = CARD_BY_ID.get(id);
-      if (card && card.branches.length > 0) out.push(card);
+      if (!card || card.branches.length === 0) continue;
+      // 先拿到、用一会儿，再谈改装
+      if (this.picksMade - (this.ownedAt.get(id) ?? 0) < 2) continue;
+      out.push(card);
     }
     return out;
   }
@@ -3846,6 +3884,7 @@ export class Game {
 
     if (!offer.isUpgrade) {
       this.owned.set(card.id, null);
+      this.ownedAt.set(card.id, this.picksMade);
       if (card.rarity === 'prototype') {
         this.prototypesTaken += 1;
         this.o.fx.ultRing(this.players[0]?.x ?? 0, this.players[0]?.y ?? 0, 90);
