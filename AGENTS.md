@@ -57,6 +57,13 @@ tank-survivors/
 ├── vite.config.ts     三套产物：game / sheet / zoom
 ├── tsconfig.json
 ├── docs/              设计文档（事实来源，代码要服从它）
+│   ├── v3/            当前方向：v3 设计（只有设计，未实现）
+│   │   ├── 00-index.md        为什么重做、三层结构、支柱、成功标准
+│   │   ├── 01-combat.md       伤害模型与打击感规范（停帧/白闪/震屏限流）
+│   │   ├── 02-elements.md     火/电/冰/酸：状态、质变、组合
+│   │   ├── 03-cards.md        23 张卡、3 级、满级质变、抽取规则
+│   │   ├── 04-sustain.md      生命/恢复三条渠道/护盾/补给/经济
+│   │   └── 05-levels-plan.md  8 分钟时间轴、M1/M2/M3 范围与验收
 │   ├── pitch.md       玩法一页纸
 │   ├── levels.md      阶段、波次、BOSS、地形专属节点
 │   ├── skills.md      5 流派的设计意图（为什么这样分）
