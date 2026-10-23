@@ -105,7 +105,11 @@ export const CONFIG = {
       overloadCharge: 0.7, overloadDmg: 4, overloadPierce: 99,
       fastCd: 2.5, fastDmg: 2, fastPierce: 2,
     },
-    stop: { cd: 45, dur: 1.2, boost: 0.4, boostT: 3 },
+    stop: {
+      cd: 45, dur: 1.2, beamMul: 6,
+      shortCd: 20, shortDur: 0.8, shortMul: 4,
+      longCd: 60, longDur: 2.4, longMul: 10,
+    },
     heat: { max: 100, perShot: 9, rest: 1.0, restFast: 0.6, redAt: 0.7, redMul: 1.25, redSlow: 0.1, cool: 12 },
     /** 应急维修包：定时一次性回血（不是持续回复）。 */
     med: { cd: 30, heal: 15, fastCd: 20, fastHeal: 12, share: 0.66 },

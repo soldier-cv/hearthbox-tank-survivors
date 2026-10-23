@@ -572,6 +572,22 @@ export class Ui {
       }
     }
 
+    // 热量（超载核心）：代价必须看得见
+    if (p.kit.heatMax > 0) {
+      const hr = Math.min(1, p.heat / p.kit.heatMax);
+      g.fillStyle = COLORS.grid;
+      g.fillRect(x + 112, y + 37, 86, 3);
+      g.fillStyle = p.overheat > 0 ? COLORS.bomber : hr > CONFIG.cards.heat.redAt ? COLORS.scout : COLORS.p1;
+      g.fillRect(x + 112, y + 37, 86 * hr, 3);
+      if (p.overheat > 0) {
+        g.fillStyle = COLORS.bomber;
+        g.font = '8px monospace';
+        g.textAlign = 'right';
+        g.fillText('过热', x + cw - 10, y + 45);
+        g.textAlign = 'left';
+      }
+    }
+
     // 炸弹 pip
     const bombY = y + 50;
     g.textAlign = 'left';
@@ -1614,7 +1630,7 @@ const FLAG_LABEL: Partial<Record<Flag, string>> = {
   noSpread: '散布归零',
   heavyShot: '命中击退',
   pierceWall: '穿墙',
-  pierceArmor: '无视正面减伤',
+  pierceArmor: '无视正面减伤 · 破盾 ×2',
   bounceFrag: '反弹分裂 2 发',
   napalmTrail: '着火拖火痕',
   napalmJet: '改短距直喷',

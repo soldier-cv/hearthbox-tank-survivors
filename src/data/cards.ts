@@ -431,15 +431,14 @@ export const CARDS: CardDef[] = [
       {
         id: 'ap-wall',
         name: '穿墙',
-        desc: '穿墙 + 对砖墙 ×1.5，穿透 −1。',
+        desc: '子弹穿过砖墙与残楼，穿透 −1。',
         add: { pierce: -1 },
-        mul: { wallDmg: 1.5 },
         flags: ['pierceWall'],
       },
       {
         id: 'ap-armor',
         name: '破甲',
-        desc: '穿透 +1，无视护甲 40%。',
+        desc: '穿透 +1，无视正面减伤，对护盾伤害 ×2。',
         add: { pierce: 1 },
         flags: ['pierceArmor'],
       },
@@ -559,7 +558,7 @@ export const CARDS: CardDef[] = [
     rarity: 'refined',
     tag: 'auto',
     axis: 'deploy',
-    desc: '每 2.4s 布雷：80px 内敌人触发时吸附追踪。',
+    desc: '每 2.4s 布雷：80px 内的敌人会被拽向雷，走进中心即引爆。',
     add: { mines: 1 },
     flags: ['mineHoming'],
     branches: [
@@ -740,7 +739,7 @@ export const CARDS: CardDef[] = [
       {
         id: 'shield-double',
         name: '双层',
-        desc: '再 +1 层，充能 +26%。',
+        desc: '再 +1 层，但充能慢 26%。',
         add: { shieldMax: 1 },
         mul: { shieldRecharge: 1.26 },
       },
@@ -887,7 +886,6 @@ export const CARDS: CardDef[] = [
     axis: 'far',
     desc: '每 5s 蓄力 0.35s：穿墙、贯穿 4、无衰减、×3。代价：蓄力时移速 −40%。',
     add: { railgun: 1 },
-    flags: ['railCard', 'railWall'],
     branches: [
       {
         id: 'rail-overload',
@@ -934,20 +932,19 @@ export const CARDS: CardDef[] = [
     rarity: 'prototype',
     tag: 'control',
     axis: 'self',
-    desc: '每 45s 静止 1.2s：全场敌人与敌弹静止。代价：你自己也不能移动。',
+    desc: '每 45s 停住世界 1.2s：敌人与敌弹静止，你能走位瞄准且不能开火；结束时沿炮口打出一条贯穿全场的炮击（×6）。',
     add: { stops: 1 },
     branches: [
       {
         id: 'stop-short',
         name: '短频',
-        desc: '20s 一次，只停 0.6s。',
-        mul: { stopCd: 0.44, stopDur: 0.5 },
+        desc: '20s 一次，停 0.8s，炮击 ×4。',
+        flags: ['stopShort'],
       },
       {
         id: 'stop-long',
         name: '长时',
-        desc: '60s 一次，停 2.5s，结束后 3s 射速 +40%。',
-        mul: { stopCd: 1.33, stopDur: 2.1 },
+        desc: '60s 一次，停 2.4s，炮击 ×10。',
         flags: ['stopLong'],
       },
     ],

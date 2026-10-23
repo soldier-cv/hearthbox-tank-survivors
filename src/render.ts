@@ -639,6 +639,20 @@ export class Renderer {
         e.def.model,
         { t: time, moving: true, speed: Math.min(1, Math.hypot(e.vx, e.vy) / 90) },
       );
+
+      // 冻结：脚下一圈冰晶（减速只是变色，定身要有更硬的提示）
+      if (e.rootT > 0) {
+        g.globalAlpha = 0.55;
+        g.strokeStyle = '#c9f5fb';
+        g.lineWidth = 1.5;
+        for (let k = 0; k < 6; k += 1) {
+          const a = (Math.PI * 2 * k) / 6 + time * 0.4;
+          g.beginPath();
+          g.moveTo(e.x + Math.cos(a) * e.r, e.y + Math.sin(a) * e.r);
+          g.lineTo(e.x + Math.cos(a) * (e.r + 7), e.y + Math.sin(a) * (e.r + 7));
+          g.stroke();
+        }
+      }
       g.restore();
 
       // 护盾：六边形
@@ -824,6 +838,37 @@ export class Renderer {
           g.arc(p.x, p.y, p.r + 8 + i * 4, 0, Math.PI * 2);
           g.stroke();
         }
+        g.restore();
+      }
+
+      // 过载核心：热量进红区时车体泛红（代价要看得见）
+      if (p.kit.heatMax > 0 && p.heat / p.kit.heatMax > CONFIG.cards.heat.redAt) {
+        g.save();
+        g.globalAlpha = 0.35 + Math.sin(time * 10) * 0.12;
+        g.strokeStyle = COLORS.bomber;
+        g.lineWidth = 2;
+        g.beginPath();
+        g.arc(p.x, p.y, p.r + 10, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (p.heat / p.kit.heatMax));
+        g.stroke();
+        g.restore();
+      }
+
+      // 时停：沿炮口画一条瞄准线，告诉你这一炮会打向哪
+      if (p.stopT > 0) {
+        g.save();
+        g.globalAlpha = 0.35 + Math.sin(time * 14) * 0.12;
+        g.strokeStyle = '#c9f5fb';
+        g.lineWidth = 2;
+        g.setLineDash([14, 10]);
+        g.beginPath();
+        g.moveTo(p.x, p.y);
+        g.lineTo(p.x + Math.cos(p.turretAngle) * 900, p.y + Math.sin(p.turretAngle) * 900);
+        g.stroke();
+        g.setLineDash([]);
+        g.globalAlpha = 0.55;
+        g.beginPath();
+        g.arc(p.x, p.y, p.r + 16, 0, Math.PI * 2);
+        g.stroke();
         g.restore();
       }
 

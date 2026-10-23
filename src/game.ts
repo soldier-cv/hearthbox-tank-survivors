@@ -104,6 +104,8 @@ export interface Bullet {
   homing: number;
   /** 抛射体：寿命结束时落地爆炸（手雷 / 燃油弹）。 */
   shell: boolean;
+  /** 感电：命中后目标受到的伤害 +15%。 */
+  shock: boolean;
   /** 落地火池的持续伤害与时长。 */
   puddleLife: number;
   color: string;
@@ -199,6 +201,8 @@ export interface Kit {
   stops: number;
   stopCd: number;
   stopDur: number;
+  /** 时停结束时那一炮的倍率。 */
+  stopBeam: number;
   rail: boolean;
   railCd: number;
   railCharge: number;
@@ -248,6 +252,7 @@ function emptyKit(): Kit {
     stops: 0,
     stopCd: C.stop.cd,
     stopDur: C.stop.dur,
+    stopBeam: C.stop.beamMul,
     rail: false,
     railCd: C.rail.cd,
     railCharge: C.rail.charge,
@@ -347,8 +352,7 @@ export interface Player {
   /** 时停核心。 */
   stopCd: number;
   stopT: number;
-  /** 临时射速加成剩余（时停·长时）。 */
-  rapidT: number;
+
   /** 轨道炮（卡）。 */
   railCdCard: number;
   railCharge: number;
@@ -821,7 +825,6 @@ export class Game {
       overheat: 0,
       stopCd: 0,
       stopT: 0,
-      rapidT: 0,
       railCdCard: 0,
       railCharge: 0,
       grenadeCd: 0,
@@ -874,11 +877,11 @@ export class Game {
     p.st.critMul = p.base.critMul + nz(add.critMulAdd);
     p.st.projectiles = Math.min(6, Math.max(1, p.base.projectiles + nz(add.projectiles)));
     // 长矛：签名阶段 Ⅱ 起额外穿透
-    p.st.pierce = Math.min(3, p.base.pierce + weapon.pierce + nz(add.pierce) + p.sig.pierceExtra);
+    p.st.pierce = Math.min(6, p.base.pierce + weapon.pierce + nz(add.pierce) + p.sig.pierceExtra);
 
     // 存算好的派生量，渲染与战斗都读这些
     p.armorFlat = nz(add.armorFlat);
-    p.blastRadius = Math.min(90, (weapon.blastRadius || 0) + blastAdd);
+    p.blastRadius = Math.min(90, ((weapon.blastRadius || 0) + blastAdd) * nzp(mul.blastRadius));
     p.puddleDps = Math.min(20, nz(add.puddleDps) + (p.tank.signature === 'furnace' ? FURNACE_SIG.puddle[i] * 6 : 0));
     p.falloff = Math.min(1, (p.weapon.noFalloff ? 1 : 0.7) * nzp(mul.falloff));
     p.wallDmg = nzp(mul.wallDmg);
@@ -935,8 +938,18 @@ export class Game {
     kit.coneDmg = K.cone.dmgRatio * nzp(mul.coneDmg);
     kit.heatMax = nz(add.heatMax);
     kit.stops = nz(add.stops);
-    kit.stopCd = K.stop.cd * nzp(mul.stopCd);
-    kit.stopDur = K.stop.dur * nzp(mul.stopDur);
+    kit.stopCd = K.stop.cd;
+    kit.stopDur = K.stop.dur;
+    kit.stopBeam = K.stop.beamMul;
+    if (p.flags.has('stopShort')) {
+      kit.stopCd = K.stop.shortCd;
+      kit.stopDur = K.stop.shortDur;
+      kit.stopBeam = K.stop.shortMul;
+    } else if (p.flags.has('stopLong')) {
+      kit.stopCd = K.stop.longCd;
+      kit.stopDur = K.stop.longDur;
+      kit.stopBeam = K.stop.longMul;
+    }
     kit.rail = nz(add.railgun) > 0;
     kit.railCd = K.rail.cd;
     kit.railCharge = K.rail.charge;
@@ -990,13 +1003,13 @@ export class Game {
     }
 
     this.updateEnemies(foeStep);
-    this.updateBullets(step, this.bullets, false);
+    this.updateBullets(foeStep, this.bullets, false);
     this.updateBullets(foeStep, this.ebullets, true);
     this.updateTurrets(step);
     this.updateWells(step);
     this.updateBooms(step);
-    this.updatePickups(step);
-    this.updateHazards(step);
+    this.updatePickups(foeStep);
+    this.updateHazards(foeStep);
     this.updateSpawning(step, inputs);
     this.updateEvents(step);
     this.world.update(step);
@@ -1077,10 +1090,8 @@ export class Game {
     if (p.flags.has('heatRedline') && p.kit.heatMax > 0 && p.heat / p.kit.heatMax > CONFIG.cards.heat.redAt) {
       speed *= 1 - CONFIG.cards.heat.redSlow;
     }
-    // 时停核心：你自己也不能移动
-    if (p.stopT > 0) speed = 0;
-
-    const mag = p.stopT > 0 ? 0 : Math.hypot(inp.moveX, inp.moveY);
+    // 时停核心：敌人停住，你仍能走位（否则就只是暂停）
+    const mag = Math.hypot(inp.moveX, inp.moveY);
     p.moving = mag > 0.05;
     p.speed01 = Math.min(1, mag);
 
@@ -1089,6 +1100,18 @@ export class Game {
       p.vx = p.dashDirX * C.dashSpeed * sig.dashRange;
       p.vy = p.dashDirY * C.dashSpeed * sig.dashRange;
       this.o.fx.trail(p.x, p.y, p.x - p.vx * dt, p.y - p.vy * dt, p.tank.light);
+      // 相位冲刺：残影留在冲刺终点，0.35s 后爆
+      if (p.dashTime <= 0 && p.flags.has('phaseDash')) {
+        this.booms.push({
+          alive: true, owner: p.index, x: p.x, y: p.y,
+          r: CONFIG.cards.phase.r,
+          dmg: CONFIG.cards.phase.dmg * (p.st.dmg / Math.max(1, p.base.dmg)),
+          t: CONFIG.cards.phase.delay,
+          slow: p.flags.has('dashSlow') ? CONFIG.cards.phase.slow : 0,
+          puddle: 0, puddleLife: 0,
+        });
+        this.ring(p.x, p.y, CONFIG.cards.phase.r, '#9fd8ff', 0.3, 2);
+      }
     } else {
       const tx = inp.moveX * speed;
       const ty = inp.moveY * speed;
@@ -1145,17 +1168,6 @@ export class Game {
       if (p.dashLeft <= 0) p.dashCd = C.dashCd * sig.dashCdMul * nzp(p.mul.dashCd);
       p.invuln = Math.max(p.invuln, C.dashTime + 0.06);
       p.dashBoost = 1;
-      // 相位冲刺：留下会爆的残影
-      if (p.flags.has('phaseDash')) {
-        this.booms.push({
-          alive: true, owner: p.index, x: p.x, y: p.y,
-          r: CONFIG.cards.phase.r,
-          dmg: CONFIG.cards.phase.dmg * (p.st.dmg / Math.max(1, p.base.dmg)),
-          t: CONFIG.cards.phase.delay,
-          slow: p.flags.has('dashSlow') ? CONFIG.cards.phase.slow : 0,
-          puddle: 0, puddleLife: 0,
-        });
-      }
       if (sig.decoyTime > 0) {
         p.decoyT = sig.decoyTime;
         p.decoyX = p.x;
@@ -1176,12 +1188,11 @@ export class Game {
     }
 
     // ---- 开火 ----
-    const rofBoost = 1 + (p.dashBoost > 0 ? sig.dashRoF : 0) + (p.rapidT > 0 ? CONFIG.cards.stop.boost : 0);
-    if (p.rapidT > 0) p.rapidT = Math.max(0, p.rapidT - dt);
+    const rofBoost = 1 + (p.dashBoost > 0 ? sig.dashRoF : 0);
     p.fireCd -= dt * rofBoost;
     p.heat = Math.max(0, p.heat - CONFIG.cards.heat.cool * dt);
     if (p.overheat > 0) p.overheat = Math.max(0, p.overheat - dt);
-    if (p.fireCd <= 0 && p.overheat <= 0) {
+    if (p.fireCd <= 0 && p.overheat <= 0 && p.stopT <= 0) {
       // 金手指「射速倍率」在这里生效
       p.fireCd = Math.max(0.05, this.o.tuning.fireInterval(p.st.interval));
       this.fire(p, target);
@@ -1232,7 +1243,7 @@ export class Game {
     if (p.kit.stops > 0) {
       if (p.stopT > 0) {
         p.stopT = Math.max(0, p.stopT - dt);
-        if (p.stopT === 0 && p.flags.has('stopLong')) p.rapidT = CONFIG.cards.stop.boostT;
+        if (p.stopT === 0) this.stopBeam(p);
       } else {
         p.stopCd = Math.max(0, p.stopCd - dt);
         if (p.stopCd <= 0) {
@@ -1240,7 +1251,7 @@ export class Game {
           p.stopT = p.kit.stopDur;
           this.o.fx.ultNova(p.x, p.y);
           this.o.audio.sfx('nova');
-          this.ring(p.x, p.y, 420, '#9fd8ff', 0.5, 3);
+          this.ring(p.x, p.y, 560, '#9fd8ff', p.kit.stopDur, 3);
         }
       }
     }
@@ -1312,8 +1323,9 @@ export class Game {
       }
     }
 
-    // ---- 自动化 ----
-    this.updateDrones(p, dt, target);
+    // ---- 自动化（时停期间全部停手）----
+    if (p.stopT <= 0) this.updateDrones(p, dt, target);
+    if (p.stopT <= 0) {
     if (p.mineCd > 0) {
       p.minesCd -= dt;
       if (p.minesCd <= 0) {
@@ -1330,7 +1342,8 @@ export class Game {
     }
 
     // ---- 卡牌副武器 ----
-    this.updateSubweapons(p, dt, target);
+    if (p.stopT <= 0) this.updateSubweapons(p, dt, target);
+    }
 
     // ---- 无敌金手指 ----
     if (this.o.cheat('god-mode') > 0) p.invuln = Math.max(p.invuln, 0.1);
@@ -1373,8 +1386,11 @@ export class Game {
   // ---- 开火 ----
 
   private fire(p: Player, target: Enemy | null): void {
-    // 长管炮：贴太近打不到
-    if (p.kit.minRange > 0 && target && dist2(p.x, p.y, target.x, target.y) < p.kit.minRange ** 2) return;
+    // 长管炮：贴太近打不到 —— 改打射程外的目标，找不到才停火
+    if (p.kit.minRange > 0 && target && dist2(p.x, p.y, target.x, target.y) < p.kit.minRange ** 2) {
+      target = this.nearestBeyond(p.x, p.y, p.kit.minRange, p.st.range);
+      if (!target) return;
+    }
 
     const base = p.turretAngle;
     const n = Math.max(1, p.st.projectiles);
@@ -1468,6 +1484,25 @@ export class Game {
     this.o.fx.blast(p.x + Math.cos(a) * 30, p.y + Math.sin(a) * 30, 26);
   }
 
+  /** 时停结束：沿炮口打出一条贯穿全场的炮击（这才是时停的收益）。 */
+  private stopBeam(p: Player): void {
+    const a = p.turretAngle;
+    const b = this.makeBullet(p.x, p.y, a, 1500, p.st.dmg * p.kit.stopBeam, false);
+    b.pierce = 99;
+    b.falloff = 1;
+    b.rail = true;
+    b.ghost = true;
+    b.size = 8;
+    b.color = '#c9f5fb';
+    b.life = 1.2;
+    b.owner = p.index;
+    this.bullets.push(b);
+    this.o.fx.ultRail(p.x, p.y, a, 1600);
+    this.o.fx.addShake('shakeBoss');
+    this.o.audio.sfx('rail');
+    this.o.rumble(0.7, 0.4, 160);
+  }
+
   /** 轨道炮（卡）：穿墙、贯穿、无衰减。 */
   private railshotCard(p: Player): void {
     const K = CONFIG.cards.rail;
@@ -1525,7 +1560,7 @@ export class Game {
 
   private spawnBullet(p: Player, angle: number, dmg: number, crit: boolean, heavy: boolean, radial: boolean): void {
     const b = this.makeBullet(p.x + Math.cos(angle) * p.r * 1.6, p.y + Math.sin(angle) * p.r * 1.6, angle, p.st.bulletSpeed, dmg, crit);
-    b.pierce = p.st.pierce + (heavy ? 1 : 0);
+    b.pierce = p.st.pierce;
     b.falloff = p.falloff;
     b.blast = p.blastRadius;
     b.puddle = p.puddleDps;
@@ -1584,6 +1619,7 @@ export class Game {
       ghost: false,
       homing: 0,
       shell: false,
+      shock: false,
       puddleLife: 3,
       color: crit ? '#ffffff' : '#f3ecdd',
       size: 4,
@@ -1771,6 +1807,21 @@ export class Game {
         bestD = d;
         best = e;
       }
+    }
+    return best;
+  }
+
+  /** 超出最小射程的最近敌人（长管炮用）。 */
+  private nearestBeyond(x: number, y: number, minR: number, maxR: number): Enemy | null {
+    let best: Enemy | null = null;
+    let bestD = maxR * maxR;
+    const min2 = minR * minR;
+    for (const e of this.enemies) {
+      if (!e.alive || e.dead) continue;
+      const d = dist2(x, y, e.x, e.y);
+      if (d <= min2 || d > bestD) continue;
+      bestD = d;
+      best = e;
     }
     return best;
   }
@@ -1969,6 +2020,7 @@ export class Game {
           smart: p.flags.has('turretSmart'),
         });
         p.turretCd = K.turret.deployCd;
+        this.ring(p.x + Math.cos(p.angle + Math.PI) * 26, p.y + Math.sin(p.angle + Math.PI) * 26, 34, '#c9a0ff', 0.35, 2);
         this.o.audio.sfx('ui', 0, 0.6);
       }
     }
@@ -2034,9 +2086,9 @@ export class Game {
         continue;
       }
       t.cd -= dt;
-      const target = t.smart
-        ? this.nearestEnemy(this.players[t.owner]?.x ?? t.x, this.players[t.owner]?.y ?? t.y, t.range, false)
-        : this.nearestEnemy(t.x, t.y, t.range, false);
+      const owner = this.players[t.owner];
+      const aimed = t.smart && owner ? this.aimTarget(owner) : null;
+      const target = aimed ?? this.nearestEnemy(t.x, t.y, t.range, false);
       if (!target) continue;
       t.angle = Math.atan2(target.y - t.y, target.x - t.x);
       if (t.cd > 0) continue;
@@ -2195,6 +2247,8 @@ export class Game {
           else b.vy = -b.vy;
           b.life = Math.max(b.life, 0.4);
           this.o.fx.pierce(b.x, b.y, Math.atan2(b.vy, b.vx));
+          const owner = this.players[b.owner];
+          if (owner && owner.flags.has('bounceFrag')) this.splitFrag(b);
           continue;
         }
         if (b.blast > 0) this.explode(b, b.x, b.y);
@@ -2245,8 +2299,11 @@ export class Game {
         const front = e.boss ? false : this.isFrontal(e, b);
         let dmg = front ? b.dmg * (1 - (e.def.frontalReduction ?? 0)) : b.dmg;
 
-        // 破甲：正面减伤无效
-        if (owner && owner.flags.has('pierceArmor') && front) dmg = b.dmg;
+        // 破甲：正面减伤无效，打护盾 ×2
+        if (owner && owner.flags.has('pierceArmor')) {
+          if (front) dmg = b.dmg;
+          if (e.shield > 0) dmg *= 2;
+        }
 
         // 长矛·贯穿校射：每多穿透一个目标，这一发伤害累加
         if (owner && owner.tank.signature === 'lance' && owner.sig.pierceBonus > 0) {
@@ -2268,6 +2325,12 @@ export class Game {
             owner.swarmStacks = 0;
             this.swarmStrike(owner, e);
           }
+        }
+
+        // 感电（电弧反制）
+        if (b.shock) {
+          e.vuln = Math.max(e.vuln, 0.15);
+          e.vulnT = 2;
         }
 
         // 冰霜 / 冷媒：减速 + 脆化
@@ -2307,17 +2370,7 @@ export class Game {
           b.vx = -b.vy;
           b.vy = -vx0;
           b.life = Math.max(b.life, 0.4);
-          if (owner && owner.flags.has('bounceFrag')) {
-            for (let k = 0; k < 2; k += 1) {
-              const fa = Math.atan2(b.vy, b.vx) + (k === 0 ? 0.5 : -0.5);
-              const frag = this.makeBullet(b.x, b.y, fa, Math.hypot(b.vx, b.vy), b.dmg * 0.5, false);
-              frag.owner = b.owner;
-              frag.color = b.color;
-              frag.size = 3;
-              frag.life = 0.5;
-              this.bullets.push(frag);
-            }
-          }
+          if (owner && owner.flags.has('bounceFrag')) this.splitFrag(b);
           break;
         }
 
@@ -2343,6 +2396,19 @@ export class Game {
 
     // 回收
     compact(pool);
+  }
+
+  /** 破片跳弹：反弹时分裂两发。 */
+  private splitFrag(b: Bullet): void {
+    for (let k = 0; k < 2; k += 1) {
+      const fa = Math.atan2(b.vy, b.vx) + (k === 0 ? 0.5 : -0.5);
+      const frag = this.makeBullet(b.x, b.y, fa, Math.hypot(b.vx, b.vy), b.dmg * 0.5, false);
+      frag.owner = b.owner;
+      frag.color = b.color;
+      frag.size = 3;
+      frag.life = 0.5;
+      this.bullets.push(frag);
+    }
   }
 
   /** 抛射体落地：先铺火池，再爆炸。 */
@@ -3083,6 +3149,7 @@ export class Game {
       b.pierce = p.kit.reflectPierce;
       b.color = arc ? '#9fd8ff' : '#f3ecdd';
       b.size = 3;
+      b.shock = arc;
       if (arc) b.chain = 1;
       this.bullets.push(b);
     }
