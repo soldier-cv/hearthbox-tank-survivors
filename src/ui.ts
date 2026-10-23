@@ -1332,11 +1332,11 @@ export class Ui {
           const br = o.branches[b]!;
           const bx = left + 16;
           const bw = inner - 32;
-          const by = y + 122 + b * 74;
+          const by = y + 122 + b * 76;
           const sel = on && this.branchFocus === b;
 
           g.fillStyle = sel ? 'rgba(242,177,60,0.14)' : 'rgba(255,255,255,0.035)';
-          roundRect(g, bx, by, bw, 66, 5);
+          roundRect(g, bx, by, bw, 70, 5);
           g.fill();
           g.strokeStyle = sel ? COLORS.p1 : COLORS.grid;
           g.lineWidth = sel ? 2 : 1;
@@ -1345,7 +1345,7 @@ export class Ui {
           g.textAlign = 'left';
           g.fillStyle = sel ? COLORS.p1Light : COLORS.textBright;
           g.font = '14px monospace';
-          g.fillText(br.name, bx + 10, by + 18);
+          g.fillText(br.name, bx + 10, by + 17);
 
           const lines = deltaLines(br, 3);
           const shown: Delta[] = lines.length > 0
@@ -1354,7 +1354,7 @@ export class Ui {
           g.font = '11px monospace';
           for (let l = 0; l < shown.length; l += 1) {
             g.fillStyle = shown[l]!.good ? COLORS.heal : COLORS.enemy;
-            g.fillText(shown[l]!.text, bx + 10, by + 37 + l * 14);
+            g.fillText(shown[l]!.text, bx + 10, by + 34 + l * 13);
           }
         }
       } else {
@@ -1791,7 +1791,8 @@ function wrap(text: string, perLine: number): string[] {
   for (const ch of text) {
     if (ch === '，' || ch === '。' || ch === '；') {
       line += ch;
-      out.push(line);
+      // 只有标点的一行不要（否则会出现孤零零一个"，"）
+      if (line.replace(/[，。；]/g, '').length > 0) out.push(line);
       line = '';
       continue;
     }
