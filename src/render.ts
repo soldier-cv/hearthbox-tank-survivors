@@ -110,7 +110,6 @@ export class Renderer {
     this.drawBullets(g, this.game.ebullets, left, right, top, bottom);
     this.drawBullets(g, this.game.bullets, left, right, top, bottom);
     this.drawPlayers(g, time);
-    this.drawTurrets(g, left, right, top, bottom);
     this.drawDrones(g, left, right, top, bottom);
     fx.render(g, LAYER.overEntity);
     this.drawRings(g);
@@ -465,62 +464,6 @@ export class Renderer {
       g.restore();
     }
 
-    // 引力井 / 电极柱
-    for (const w of this.game.wells) {
-      if (!w.alive) continue;
-      if (!this.inBoundsBox(w.x, w.y, left, right, top, bottom, w.r)) continue;
-      const t = Math.max(0, w.life / w.maxLife);
-      g.save();
-      if (w.pillar > 0) {
-        g.globalAlpha = 0.18 + t * 0.2;
-        g.fillStyle = '#58c8d8';
-        g.beginPath();
-        g.arc(w.x, w.y, w.r, 0, Math.PI * 2);
-        g.fill();
-        g.globalAlpha = 0.8;
-        g.strokeStyle = '#c9f5fb';
-        g.lineWidth = 2;
-        g.beginPath();
-        g.arc(w.x, w.y, 6 + (1 - t) * 4, 0, Math.PI * 2);
-        g.stroke();
-      } else {
-        g.globalAlpha = 0.22 + t * 0.25;
-        g.fillStyle = w.inert ? '#9ad14f' : '#c9a0ff';
-        g.beginPath();
-        g.arc(w.x, w.y, w.r * (1 - t * 0.25), 0, Math.PI * 2);
-        g.fill();
-        g.globalAlpha = 0.9;
-        g.strokeStyle = w.inert ? '#9ad14f' : '#e6d7ff';
-        g.lineWidth = 2;
-        for (let i = 0; i < 3; i += 1) {
-          const rr = w.r * (0.35 + i * 0.25) * (1.1 - t * 0.3);
-          g.beginPath();
-          g.arc(w.x, w.y, rr, 0, Math.PI * 2);
-          g.stroke();
-        }
-        g.fillStyle = '#ffffff';
-        g.beginPath();
-        g.arc(w.x, w.y, 5, 0, Math.PI * 2);
-        g.fill();
-      }
-      g.restore();
-    }
-
-    // 延迟爆炸（相位冲刺残影 / 跳雷）
-    for (const b of this.game.booms) {
-      if (!b.alive) continue;
-      if (!this.inBoundsBox(b.x, b.y, left, right, top, bottom, b.r)) continue;
-      const t = Math.max(0, b.t / 0.35);
-      g.save();
-      g.globalAlpha = 0.35 + (1 - t) * 0.4;
-      g.strokeStyle = '#9fd8ff';
-      g.lineWidth = 2;
-      g.beginPath();
-      g.arc(b.x, b.y, b.r * (0.4 + (1 - t) * 0.6), 0, Math.PI * 2);
-      g.stroke();
-      g.restore();
-    }
-
     // 地雷：地面蓝三角，始终可见（不能"看不见就踩上"）
     for (const m of this.game.mines) {
       if (!m.alive) continue;
@@ -578,17 +521,6 @@ export class Renderer {
         g.strokeStyle = COLORS.void;
         g.lineWidth = 1.5;
         g.strokeRect(k.x - 9, k.y - 7, 18, 14);
-        // 刚投放的 4 秒：扩散脉冲，避免"掉在地上没人看见"
-        if (k.t < 4) {
-          const p = (k.t % 1) / 1;
-          g.globalAlpha = (1 - p) * 0.6;
-          g.strokeStyle = k.color;
-          g.lineWidth = 2;
-          g.beginPath();
-          g.arc(k.x, k.y, 12 + p * 18, 0, Math.PI * 2);
-          g.stroke();
-          g.globalAlpha = 1;
-        }
         g.fillStyle = COLORS.void;
         if (k.kind === 'repair') {
           g.fillRect(k.x - 5, k.y - 1.5, 10, 3);
@@ -650,20 +582,6 @@ export class Renderer {
         e.def.model,
         { t: time, moving: true, speed: Math.min(1, Math.hypot(e.vx, e.vy) / 90) },
       );
-
-      // 冻结：脚下一圈冰晶（减速只是变色，定身要有更硬的提示）
-      if (e.rootT > 0) {
-        g.globalAlpha = 0.55;
-        g.strokeStyle = '#c9f5fb';
-        g.lineWidth = 1.5;
-        for (let k = 0; k < 6; k += 1) {
-          const a = (Math.PI * 2 * k) / 6 + time * 0.4;
-          g.beginPath();
-          g.moveTo(e.x + Math.cos(a) * e.r, e.y + Math.sin(a) * e.r);
-          g.lineTo(e.x + Math.cos(a) * (e.r + 7), e.y + Math.sin(a) * (e.r + 7));
-          g.stroke();
-        }
-      }
       g.restore();
 
       // 护盾：六边形
@@ -852,37 +770,6 @@ export class Renderer {
         g.restore();
       }
 
-      // 过载核心：热量进红区时车体泛红（代价要看得见）
-      if (p.kit.heatMax > 0 && p.heat / p.kit.heatMax > CONFIG.cards.heat.redAt) {
-        g.save();
-        g.globalAlpha = 0.35 + Math.sin(time * 10) * 0.12;
-        g.strokeStyle = COLORS.bomber;
-        g.lineWidth = 2;
-        g.beginPath();
-        g.arc(p.x, p.y, p.r + 10, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (p.heat / p.kit.heatMax));
-        g.stroke();
-        g.restore();
-      }
-
-      // 时停：沿炮口画一条瞄准线，告诉你这一炮会打向哪
-      if (p.stopT > 0) {
-        g.save();
-        g.globalAlpha = 0.35 + Math.sin(time * 14) * 0.12;
-        g.strokeStyle = '#c9f5fb';
-        g.lineWidth = 2;
-        g.setLineDash([14, 10]);
-        g.beginPath();
-        g.moveTo(p.x, p.y);
-        g.lineTo(p.x + Math.cos(p.turretAngle) * 900, p.y + Math.sin(p.turretAngle) * 900);
-        g.stroke();
-        g.setLineDash([]);
-        g.globalAlpha = 0.55;
-        g.beginPath();
-        g.arc(p.x, p.y, p.r + 16, 0, Math.PI * 2);
-        g.stroke();
-        g.restore();
-      }
-
       // 静止蓄力导轨（铁砧）/ 要塞齐射预警
       if (p.heavyCharge > 0 && p.sig.heavyEvery > 0) {
         g.save();
@@ -954,15 +841,6 @@ export class Renderer {
     for (const d of this.game.drones) {
       if (!d.alive) continue;
       if (!this.inBoundsBox(d.x, d.y, left, right, top, bottom, 20)) continue;
-      if (d.down > 0) {
-        // 被击落：半透明残影 + 重生倒计时
-        g.save();
-        g.globalAlpha = 0.2;
-        g.fillStyle = COLORS.drone;
-        g.fillRect(d.x - 3, d.y - 3, 6, 6);
-        g.restore();
-        continue;
-      }
       const p = this.game.players[d.owner];
       g.fillStyle = p?.tank.glow ?? COLORS.drone;
       g.save();
@@ -972,43 +850,6 @@ export class Renderer {
       g.globalAlpha = 0.5;
       g.fillStyle = '#ffffff';
       g.fillRect(-1.5, -1.5, 3, 3);
-      g.restore();
-      if (d.shield) {
-        g.save();
-        g.globalAlpha = 0.35;
-        g.strokeStyle = '#9fd8ff';
-        g.lineWidth = 1;
-        g.beginPath();
-        g.arc(d.x, d.y, 8, 0, Math.PI * 2);
-        g.stroke();
-        g.restore();
-      }
-    }
-  }
-
-  /** 哨戒炮台：方形底座 + 炮管，剩余时间长时更亮。 */
-  private drawTurrets(
-    g: CanvasRenderingContext2D,
-    left: number,
-    right: number,
-    top: number,
-    bottom: number,
-  ): void {
-    for (const t of this.game.turrets) {
-      if (!t.alive) continue;
-      if (!this.inBoundsBox(t.x, t.y, left, right, top, bottom, 24)) continue;
-      const k = Math.max(0.25, t.life / t.maxLife);
-      g.save();
-      g.translate(t.x, t.y);
-      g.globalAlpha = 0.35 + k * 0.65;
-      g.fillStyle = '#242f36';
-      g.fillRect(-t.r * 0.8, -t.r * 0.8, t.r * 1.6, t.r * 1.6);
-      g.strokeStyle = t.heavy ? COLORS.p1 : COLORS.drone;
-      g.lineWidth = 2;
-      g.strokeRect(-t.r * 0.8, -t.r * 0.8, t.r * 1.6, t.r * 1.6);
-      g.rotate(t.angle);
-      g.fillStyle = t.heavy ? COLORS.p1 : COLORS.drone;
-      g.fillRect(0, -2, t.r * 1.4, 4);
       g.restore();
     }
   }

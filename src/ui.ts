@@ -8,11 +8,8 @@
  * 平台不提供画布内焦点系统，这里自己实现。
  */
 
-import {
-  CONFIG, COLORS, RARITY_COLORS, RARITY_NAMES, TAG_NAMES, AXIS_NAMES, THREATS,
-} from './config';
-import { MAPS, SKINS, TANKS, CARD_BY_ID } from './data/exports';
-import type { Add, Mul, Flag } from './data/exports';
+import { CONFIG, COLORS, SCHOOL_COLORS, SCHOOL_NAMES, THREATS, type School } from './config';
+import { MAPS, SKINS, TANKS } from './data/exports';
 import { chassisOf, levelScale } from './stats';
 import {
   levelOf,
@@ -45,7 +42,7 @@ export interface UiHooks {
   onRestart(): void;
   onQuit(): void;
   onExitToShelf(): void;
-  onChoose(cardId: string, branchId?: string): void;
+  onChoose(cardId: string): void;
   onReroll(): void;
   /** 存档被改动，需要立刻落盘。 */
   onSave(): void;
@@ -56,7 +53,6 @@ export class Ui {
   screen: Screen = 'title';
   twoPlayer = false;
   private focus = 0;
-  private branchFocus = 0;
   private tab: 0 | 1 | 2 | 3 = 0;
   private result: RunSummary | null = null;
   /** 进化预览（机库里按 north 打开）。 */
@@ -102,7 +98,6 @@ export class Ui {
   openLevelup(): void {
     this.screen = 'levelup';
     this.focus = 0;
-    this.branchFocus = 0;
   }
 
   openResult(r: RunSummary, win: boolean): void {
@@ -200,36 +195,19 @@ export class Ui {
     const n = game.offers.length;
     if (n === 0) { this.resume(); return; }
     if (this.focus >= n) this.focus = 0;
-    this.branchFocus = Math.max(0, Math.min(this.branchFocus, (game.offers[this.focus]?.branches.length ?? 1) - 1));
 
-    if (this.input.has('menuLeft')) { this.focus = (this.focus + n - 1) % n; this.branchFocus = 0; this.hooks.sfx('ui'); }
-    if (this.input.has('menuRight')) { this.focus = (this.focus + 1) % n; this.branchFocus = 0; this.hooks.sfx('ui'); }
-    const cur = game.offers[this.focus];
-    if (cur && cur.branches.length > 1) {
-      if (this.input.has('menuUp')) {
-        this.branchFocus = (this.branchFocus + cur.branches.length - 1) % cur.branches.length;
-        this.hooks.sfx('ui');
-      }
-      if (this.input.has('menuDown')) {
-        this.branchFocus = (this.branchFocus + 1) % cur.branches.length;
-        this.hooks.sfx('ui');
-      }
-    }
+    if (this.input.has('menuLeft')) { this.focus = (this.focus + n - 1) % n; this.hooks.sfx('ui'); }
+    if (this.input.has('menuRight')) { this.focus = (this.focus + 1) % n; this.hooks.sfx('ui'); }
     if (this.input.has('reroll') && game.rerollsLeft > 0) {
       if (game.reroll()) this.hooks.sfx('ui');
-      this.branchFocus = 0;
     }
     const pick = this.input.has('pick1') ? 0 : this.input.has('pick2') ? 1 : this.input.has('pick3') ? 2 : -1;
     const want = pick >= 0 ? pick : this.input.has('confirm') ? this.focus : -1;
     if (want >= 0 && want < n) {
-      const offer = game.offers[want]!;
-      const branch = offer.isUpgrade
-        ? offer.branches[want === this.focus ? this.branchFocus : 0] ?? offer.branches[0] ?? null
-        : null;
-      this.hooks.onChoose(offer.card.id, branch?.id);
+      const card = game.offers[want]!;
+      this.hooks.onChoose(card.id);
       this.hooks.sfx('ui');
       this.focus = 0;
-      this.branchFocus = 0;
     }
   }
 
@@ -470,16 +448,6 @@ export class Ui {
     g.fillStyle = COLORS.textDim;
     g.fillText('存活', 16, 37);
 
-    // 下一份补给的倒计时：不写出来，玩家永远不知道有东西会掉
-    const nextSupply = game.suppliesLeft[0];
-    if (nextSupply !== undefined) {
-      const left = Math.max(0, nextSupply - game.time);
-      g.textAlign = 'left';
-      g.font = '9px monospace';
-      g.fillStyle = COLORS.heal;
-      g.fillText(`补给 ${formatTime(left)}`, 52, 37);
-    }
-
     g.textAlign = 'center';
     g.fillStyle = COLORS.p1;
     g.font = '16px monospace';
@@ -582,22 +550,6 @@ export class Ui {
       }
     }
 
-    // 热量（超载核心）：代价必须看得见
-    if (p.kit.heatMax > 0) {
-      const hr = Math.min(1, p.heat / p.kit.heatMax);
-      g.fillStyle = COLORS.grid;
-      g.fillRect(x + 112, y + 37, 86, 3);
-      g.fillStyle = p.overheat > 0 ? COLORS.bomber : hr > CONFIG.cards.heat.redAt ? COLORS.scout : COLORS.p1;
-      g.fillRect(x + 112, y + 37, 86 * hr, 3);
-      if (p.overheat > 0) {
-        g.fillStyle = COLORS.bomber;
-        g.font = '8px monospace';
-        g.textAlign = 'right';
-        g.fillText('过热', x + cw - 10, y + 45);
-        g.textAlign = 'left';
-      }
-    }
-
     // 炸弹 pip
     const bombY = y + 50;
     g.textAlign = 'left';
@@ -670,28 +622,22 @@ export class Ui {
     }
   }
 
-  /** 右上角：本局已拿到的装置（稀有度色点 + 改装标记）。 */
   private drawSchoolChips(g: CanvasRenderingContext2D, game: Game): void {
+    const schools: School[] = ['fire', 'pierce', 'blast', 'auto', 'survive'];
     const x = W - 12;
     const y = 78;
     g.save();
     g.textAlign = 'right';
     g.textBaseline = 'middle';
     g.font = '10px monospace';
-    let i = 0;
-    for (const [id, branchId] of game.owned) {
-      const card = CARD_BY_ID.get(id);
-      if (!card) continue;
+    for (let i = 0; i < schools.length; i += 1) {
+      const s = schools[i]!;
+      const lvl = game.schoolLevel[s];
+      const ult = game.takenUltimates.has(`${s}-x`);
       const cy = y + i * 15;
-      g.fillStyle = RARITY_COLORS[card.rarity];
-      g.globalAlpha = 1;
-      g.fillText(`${branchId ? '◆' : '◇'} ${card.name}`, x, cy);
-      i += 1;
-      if (i >= 10) break;
-    }
-    if (game.owned.size > 10) {
-      g.fillStyle = COLORS.textDim;
-      g.fillText(`+${game.owned.size - 10}`, x, y + i * 15);
+      g.fillStyle = lvl > 0 ? SCHOOL_COLORS[s] : COLORS.textDim;
+      g.globalAlpha = lvl > 0 ? 1 : 0.45;
+      g.fillText(`${SCHOOL_NAMES[s]}${lvl > 0 ? ' ' + '●'.repeat(Math.min(4, lvl)) : ''}${ult ? ' ★' : ''}`, x, cy);
     }
     g.restore();
   }
@@ -1259,183 +1205,98 @@ export class Ui {
     const offers = game.offers;
     if (offers.length === 0) return;
     g.save();
-    g.fillStyle = 'rgba(11,14,16,0.78)';
+    g.fillStyle = 'rgba(11,14,16,0.72)';
     g.fillRect(0, 0, W, H);
 
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     g.fillStyle = COLORS.textDim;
     g.font = '11px monospace';
-    g.fillText('FIELD PROMOTION', W / 2, 54);
+    g.fillText('FIELD PROMOTION', W / 2, 74);
     g.fillStyle = COLORS.textBright;
-    g.font = '26px monospace';
-    g.fillText(`升级 ${game.level}`, W / 2, 82);
+    g.font = '28px monospace';
+    g.fillText(`升级 ${game.level}`, W / 2, 104);
     g.fillStyle = COLORS.text;
-    g.font = '11px monospace';
+    g.font = '12px monospace';
     g.fillText(
-      game.players.length > 1 ? '任一名玩家选择 · 强化对全队生效' : '新装置扩展打法，改装收窄方向 · 每次都在做减法',
+      game.players.length > 1 ? '任一名玩家选择 · 强化对全队生效' : '三选一 · 每次升级都在做减法',
       W / 2,
-      104,
+      128,
     );
 
-    const cw = 252;
-    const chm = 302;
-    const rowLeft = (W - offers.length * cw) / 2;
+    const cw = 236;
+    const chh = 264;
+    const gx = (W - offers.length * cw) / 2 + cw / 2;
     for (let i = 0; i < offers.length; i += 1) {
-      const o = offers[i]!;
-      const c = o.card;
-      const x = rowLeft + cw / 2 + i * cw;
-      const y = 118;
+      const c = offers[i]!;
+      const x = gx + i * cw - cw / 2;
+      const y = 156;
       const on = this.focus === i;
-      const rc = RARITY_COLORS[c.rarity];
-      const left = x - cw / 2 + 8;
-      const inner = cw - 16;
+      const color = SCHOOL_COLORS[c.school];
+      const ult = c.level === 5;
 
       g.fillStyle = on ? 'rgba(26,34,40,0.98)' : 'rgba(18,24,28,0.94)';
-      roundRect(g, left, y, inner, chm, 6);
+      roundRect(g, x - cw / 2 + 6, y, cw - 12, chh, 6);
       g.fill();
-      g.strokeStyle = on ? rc : COLORS.grid;
+      g.strokeStyle = on ? color : COLORS.grid;
       g.lineWidth = on ? 3 : 1;
       g.stroke();
 
-      // 稀有度色条
-      g.fillStyle = rc;
-      g.globalAlpha = on ? 1 : 0.72;
-      roundRect(g, left, y, inner, 5, 3);
+      // 顶部流派色条
+      g.fillStyle = color;
+      g.globalAlpha = on ? 1 : 0.6;
+      roundRect(g, x - cw / 2 + 6, y, cw - 12, 8, 4);
       g.fill();
       g.globalAlpha = 1;
 
-      // ---- 顶部：这是什么卡（新装置 / 改装）----
-      drawPill(
-        g,
-        left + 12,
-        y + 14,
-        o.isUpgrade ? '改装' : '新装置',
-        o.isUpgrade ? COLORS.p1 : rc,
-        o.isUpgrade,
-      );
-      g.textAlign = 'right';
-      g.textBaseline = 'middle';
+      // 等级点
+      g.textAlign = 'left';
+      g.fillStyle = COLORS.textDim;
       g.font = '10px monospace';
-      g.fillStyle = COLOR_SOFT;
-      g.fillText(`${TAG_NAMES[c.tag]} · ${AXIS_NAMES[c.axis]}`, left + inner - 12, y + 23);
-
-      // ---- 卡名 ----
-      g.textAlign = 'center';
-      g.fillStyle = COLORS.textBright;
-      g.font = '22px monospace';
-      g.fillText(c.name, x, y + 52);
-
-      // ---- 稀有度 + 已有/基础效果 ----
-      g.font = '10px monospace';
-      if (o.isUpgrade) {
-        // 改装：基础效果降级成一行"已装备"，不抢视觉
-        g.fillStyle = COLOR_SOFT;
-        const all = wrap(c.desc, 26);
-        const first = (all[0] ?? c.desc).replace(/[，。；、]+$/, '');
-        g.fillText(`已装备 · ${first}${all.length > 1 ? '…' : ''}`, x, y + 78);
-      } else {
-        g.fillStyle = rc;
-        g.fillText(RARITY_NAMES[c.rarity], x, y + 78);
-      }
-
-      // 分隔线
-      g.strokeStyle = COLORS.grid;
-      g.lineWidth = 1;
-      g.beginPath();
-      g.moveTo(left + 18, y + 94);
-      g.lineTo(left + inner - 18, y + 94);
-      g.stroke();
-
-      if (o.isUpgrade) {
-        // ---- 改装：两个方向是主角 ----
-        g.textAlign = 'center';
-        g.fillStyle = COLOR_SOFT;
-        g.font = '10px monospace';
-        g.fillText('选一个方向 · ↑ ↓', x, y + 110);
-
-        for (let b = 0; b < o.branches.length; b += 1) {
-          const br = o.branches[b]!;
-          const bx = left + 16;
-          const bw = inner - 32;
-          const by = y + 122 + b * 76;
-          const sel = on && this.branchFocus === b;
-
-          g.fillStyle = sel ? 'rgba(242,177,60,0.14)' : 'rgba(255,255,255,0.035)';
-          roundRect(g, bx, by, bw, 70, 5);
+      g.fillText(ult ? '终极' : `${SCHOOL_NAMES[c.school]} ${['', 'Ⅰ', 'Ⅱ', 'Ⅲ', 'Ⅳ'][c.level] ?? c.level}`, x - cw / 2 + 20, y + 30);
+      if (!ult) {
+        for (let k = 0; k < 4; k += 1) {
+          g.fillStyle = k < c.level ? color : COLORS.grid;
+          g.beginPath();
+          g.arc(x + cw / 2 - 34 + k * 8, y + 30, 2.6, 0, Math.PI * 2);
           g.fill();
-          g.strokeStyle = sel ? COLORS.p1 : COLORS.grid;
-          g.lineWidth = sel ? 2 : 1;
-          g.stroke();
-
-          g.textAlign = 'left';
-          g.fillStyle = sel ? COLORS.p1Light : COLORS.textBright;
-          g.font = '14px monospace';
-          g.fillText(br.name, bx + 10, by + 17);
-
-          const lines = deltaLines(br, 3);
-          const shown: Delta[] = lines.length > 0
-            ? lines
-            : wrap(br.desc, 22).slice(0, 3).map((t) => ({ text: t, good: true }));
-          g.font = '11px monospace';
-          for (let l = 0; l < shown.length; l += 1) {
-            g.fillStyle = shown[l]!.good ? COLORS.heal : COLORS.enemy;
-            g.fillText(shown[l]!.text, bx + 10, by + 34 + l * 13);
-          }
         }
-      } else {
-        // ---- 新装置：效果就是主角，数字要看得见 ----
-        const lines = wrap(c.desc, 17).slice(0, 5);
-        const startY = y + 186 - (lines.length * 19) / 2;
-        g.textAlign = 'center';
-        g.fillStyle = COLORS.textBright;
-        g.font = '13px monospace';
-        for (let l = 0; l < lines.length; l += 1) g.fillText(lines[l]!, x, startY + l * 19);
       }
 
+      // 卡名
       g.textAlign = 'center';
-      g.fillStyle = on ? rc : COLORS.textDim;
-      g.font = '11px monospace';
-      g.fillText(`${i + 1} · A`, x, y + chm - 14);
-    }
+      g.fillStyle = ult ? color : COLORS.textBright;
+      g.font = `${ult ? 22 : 20}px monospace`;
+      g.fillText(c.name, x, y + 68);
 
-    // ---- 重选按钮（有图标、有次数、有键位）----
-    const hasReroll = game.rerollsLeft > 0;
-    const bw = 152;
-    const bh = 34;
-    const bx = W - bw - 18;
-    const by = 28;
-    g.fillStyle = hasReroll ? 'rgba(26,34,40,0.96)' : 'rgba(18,24,28,0.8)';
-    roundRect(g, bx, by, bw, bh, 5);
-    g.fill();
-    g.strokeStyle = hasReroll ? COLORS.p1 : COLORS.grid;
-    g.lineWidth = hasReroll ? 1.5 : 1;
-    g.stroke();
-    drawRerollIcon(g, bx + 21, by + bh / 2, hasReroll ? COLORS.p1 : COLORS.textDim);
-    g.textAlign = 'left';
-    g.textBaseline = 'middle';
-    g.fillStyle = hasReroll ? COLORS.textBright : COLORS.textDim;
-    g.font = '13px monospace';
-    g.fillText('重选', bx + 38, by + bh / 2);
-    g.fillStyle = hasReroll ? COLORS.p1 : COLORS.textDim;
-    g.font = '12px monospace';
-    g.fillText(`×${game.rerollsLeft}`, bx + 72, by + bh / 2);
-    // 键位做成键帽，别用一行看不清的小字
-    g.fillStyle = hasReroll ? 'rgba(242,177,60,0.16)' : 'rgba(255,255,255,0.05)';
-    roundRect(g, bx + 106, by + 10, 36, 15, 3);
-    g.fill();
-    g.strokeStyle = hasReroll ? COLORS.p1 : COLORS.grid;
-    g.lineWidth = 1;
-    g.stroke();
-    g.textAlign = 'center';
-    g.fillStyle = hasReroll ? COLORS.p1Light : COLORS.textDim;
-    g.font = '9px monospace';
-    g.fillText('Q / Y', bx + 124, by + 18);
+      // 描述：按宽度折行
+      g.fillStyle = COLORS.text;
+      g.font = '12px monospace';
+      const lines = wrap(c.desc, 15);
+      for (let l = 0; l < lines.length; l += 1) g.fillText(lines[l]!, x, y + 104 + l * 18);
+
+      if (ult) {
+        g.fillStyle = color;
+        g.globalAlpha = 0.16;
+        roundRect(g, x - cw / 2 + 20, y + chh - 74, cw - 40, 40, 4);
+        g.fill();
+        g.globalAlpha = 1;
+        g.fillStyle = color;
+        g.font = '11px monospace';
+        g.fillText('集齐该流派 4 级的质变', x, y + chh - 54);
+      }
+
+      g.fillStyle = on ? color : COLORS.textDim;
+      g.font = '11px monospace';
+      g.fillText(`${i + 1} · A`, x, y + chh - 22);
+    }
 
     g.textAlign = 'center';
     g.fillStyle = COLORS.textDim;
     g.font = '11px monospace';
-    g.fillText('← → 选卡 · ↑ ↓ 选方向 · A 确认 · 1 2 3 直选', W / 2, 452);
+    g.fillText('← → 选择 · A 确认 · 1 2 3 直选 · Q 重选', W / 2, 448);
+    g.fillStyle = game.rerollsLeft > 0 ? COLORS.heal : COLORS.textDim;
+    g.fillText(`重选次数 ${game.rerollsLeft}`, W / 2, 468);
     g.restore();
   }
 
@@ -1554,243 +1415,6 @@ export class Ui {
 // 辅助
 // ===================================================================
 
-/** 次要信息用的灰。 */
-const COLOR_SOFT = COLORS.textDim;
-
-/** 卡面上的一行"变化"。good = 对玩家有利（绿），否则橙色。 */
-interface Delta {
-  text: string;
-  good: boolean;
-}
-
-/** 加性修饰 → 文案。第三项：数值越大越好（high）还是越小越好（low）。 */
-const ADD_LABEL: Record<string, [string, number, 'high' | 'low']> = {
-  dmg: ['伤害', 1, 'high'],
-  projectiles: ['并联', 1, 'high'],
-  pierce: ['穿透', 1, 'high'],
-  bulletSpeed: ['弹速', 1, 'high'],
-  range: ['射程', 1, 'high'],
-  blastRadius: ['爆炸半径', 1, 'high'],
-  maxHp: ['生命', 1, 'high'],
-  armorFlat: ['减伤', 1, 'high'],
-  regen: ['回复/s', 1, 'high'],
-  shieldMax: ['护盾', 1, 'high'],
-  pickup: ['拾取', 1, 'high'],
-  dropRate: ['掉落率', 100, 'high'],
-  critAdd: ['暴击', 100, 'high'],
-  bounce: ['弹跳', 1, 'high'],
-  drones: ['无人机', 1, 'high'],
-  mines: ['地雷', 1, 'high'],
-  teslaChain: ['连锁', 1, 'high'],
-  missiles: ['导弹', 1, 'high'],
-  turrets: ['炮台', 1, 'high'],
-  heatMax: ['热量上限', 1, 'high'],
-  chill: ['减速', 100, 'high'],
-  frostVuln: ['易伤', 100, 'high'],
-  auraSlow: ['光环减速', 100, 'high'],
-  grenades: ['手雷', 1, 'high'],
-  dashCharges: ['冲刺次数', 1, 'high'],
-  reflect: ['弹片', 1, 'high'],
-  reflectPierce: ['弹片穿透', 1, 'high'],
-  chainBlast: ['连锁层数', 1, 'high'],
-  minRange: ['最小射程', 1, 'low'],
-  spread: ['散布', 1, 'low'],
-};
-
-/** 乘性修饰 → 文案。pct = 直接换算百分比；inv = 越大越快（间隔）；down = 越小越快（冷却）。 */
-const MUL_LABEL: Record<string, [string, 'pct' | 'inv' | 'down']> = {
-  dmg: ['伤害', 'pct'],
-  range: ['射程', 'pct'],
-  speed: ['移速', 'pct'],
-  interval: ['射速', 'inv'],
-  spread: ['散布', 'down'],
-  bulletSpeed: ['弹速', 'pct'],
-  blastRadius: ['爆炸半径', 'pct'],
-  blastDmg: ['爆炸伤害', 'pct'],
-  wallDmg: ['对墙', 'pct'],
-  falloff: ['穿透保留', 'pct'],
-  napalmR: ['火池半径', 'pct'],
-  napalmDps: ['火池 DPS', 'pct'],
-  napalmLife: ['火池持续', 'pct'],
-  napalmCd: ['燃油冷却', 'down'],
-  grenadeCd: ['手雷冷却', 'down'],
-  grenadeR: ['手雷半径', 'pct'],
-  missileCd: ['导弹冷却', 'down'],
-  missileDmg: ['导弹伤害', 'pct'],
-  stormCd: ['落雷间隔', 'down'],
-  stormDmg: ['落雷伤害', 'pct'],
-  stopCd: ['时停冷却', 'down'],
-  stopDur: ['时停时长', 'pct'],
-  auraR: ['光环范围', 'pct'],
-  reflectDmg: ['弹片伤害', 'pct'],
-  coneCd: ['喷口冷却', 'down'],
-  coneR: ['喷口范围', 'pct'],
-  coneDmg: ['喷口伤害', 'pct'],
-  mineCd: ['布雷间隔', 'down'],
-  teslaCd: ['电击间隔', 'down'],
-  droneCd: ['无人机间隔', 'down'],
-  droneDmg: ['无人机伤害', 'pct'],
-  mineDmg: ['地雷伤害', 'pct'],
-  teslaDmg: ['电击伤害', 'pct'],
-  shieldRecharge: ['护盾充能', 'down'],
-};
-
-/** 只有标记、没有数值的方向：给一句能读懂的话。 */
-const FLAG_LABEL: Partial<Record<Flag, string>> = {
-  noSpread: '散布归零',
-  heavyShot: '命中击退',
-  pierceWall: '穿墙',
-  pierceArmor: '无视正面减伤 · 破盾 ×2',
-  bounceFrag: '反弹分裂 2 发',
-  napalmTrail: '着火拖火痕',
-  napalmJet: '改短距直喷',
-  teslaVuln: '感电 2s（受伤 +15%）',
-  teslaPillar: '改为电极柱 8s',
-  mineHoming: '敌人被拽向雷',
-  mineJump: '跳雷 · 0.28s 后空爆',
-  mineTether: '绊索 · 拖拽减速',
-  phaseDash: '冲刺留残影',
-  dashSlow: '残影减速 45%',
-  regenCombat: '战斗中 1.2/s',
-  regenLow: '血 <30% 回复 ×3',
-  reactArmor: '0.6s 内下一击 −50%',
-  regenShare: '队友回 40%',
-  medPack: '每 30s 回 15',
-  medFast: '改成 20s 回 12',
-  medShare: '同伴也回 66%',
-  reflectArc: '弹片改电击',
-  freezeRoot: '1s 后定身 0.5s',
-  wellSingularity: '拉 2s · 结束再爆',
-  wellInert: '减速 45% · 易伤 +20%',
-  stormArc: '落雷留 2s 电弧',
-  droneShield: '无人机挡子弹',
-  droneMissile: '无人机每 3s 一发导弹',
-  missileBlast: '导弹命中爆炸',
-  turretHeavy: '单座 · 伤害 ×1.4',
-  turretSmart: '打你瞄准的目标',
-  railCard: '轨道炮',
-  railOverload: '蓄力 0.7s · ×4',
-  railFast: '2.5s 一发 · ×2',
-  heatCool: '停火缩到 0.8s',
-  heatRedline: '热量 >70% 伤害 +25%',
-  stopShort: '20s 一次 · 0.6s',
-  stopLong: '60s 一次 · 2.5s',
-  grenadeAir: '空爆 · 无视地形',
-  pickupShock: '拾取时震开敌人',
-  scrapDrop: '掉落 12% 变废铁',
-  focusFire: '集火瞄准目标',
-  doubleBlast: '二次爆炸',
-  chainEliteImmune: '精英不连锁',
-  railWall: '穿墙',
-};
-
-function signedNum(n: number): string {
-  const v = Math.round(n * 10) / 10;
-  return `${v >= 0 ? '+' : '−'}${Math.abs(v)}`;
-}
-
-function signedPct(n: number): string {
-  const v = Math.round(n);
-  return `${v >= 0 ? '+' : '−'}${Math.abs(v)}%`;
-}
-
-/**
- * 从 add / mul / flags 直接生成"变了多少"。
- *
- * 卡面不再复述描述里的数字：改装方向必须显示真实的相对变化，
- * 否则玩家看不出这条分支到底改了什么。
- */
-function deltaLines(src: { add?: Add; mul?: Mul; flags?: Flag[] }, max: number): Delta[] {
-  const out: Delta[] = [];
-
-  const add = src.add as Record<string, number | undefined> | undefined;
-  if (add) {
-    for (const key of Object.keys(ADD_LABEL)) {
-      const raw = add[key];
-      if (!raw) continue;
-      const [name, scale, dir] = ADD_LABEL[key]!;
-      const num = raw * scale;
-      out.push({ text: `${name} ${signedNum(num)}`, good: dir === 'high' ? num > 0 : num < 0 });
-    }
-  }
-
-  const mul = src.mul as Record<string, number | undefined> | undefined;
-  if (mul) {
-    for (const key of Object.keys(MUL_LABEL)) {
-      const v = mul[key];
-      if (v === undefined || v === 1) continue;
-      const [name, mode] = MUL_LABEL[key]!;
-      if (mode === 'inv') {
-        const pct = (1 / v - 1) * 100;
-        out.push({ text: `${name} ${signedPct(pct)}`, good: pct > 0 });
-      } else if (mode === 'down') {
-        const cut = (1 - v) * 100;
-        out.push({ text: `${name} ${signedPct(-cut)}`, good: cut > 0 });
-      } else {
-        const pct = (v - 1) * 100;
-        out.push({ text: `${name} ${signedPct(pct)}`, good: pct > 0 });
-      }
-    }
-  }
-
-  for (const f of src.flags ?? []) {
-    const label = FLAG_LABEL[f];
-    if (label) out.push({ text: label, good: true });
-  }
-
-  return out.slice(0, max);
-}
-
-/** 小标签：改装 / 新装置。 */
-function drawPill(
-  g: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  text: string,
-  color: string,
-  filled: boolean,
-): void {
-  g.save();
-  g.textAlign = 'left';
-  g.textBaseline = 'middle';
-  g.font = '9px monospace';
-  const w = text.length * 8 + 12;
-  if (filled) {
-    g.fillStyle = color;
-    roundRect(g, x, y, w, 15, 3);
-    g.fill();
-  }
-  g.strokeStyle = color;
-  g.lineWidth = 1;
-  roundRect(g, x, y, w, 15, 3);
-  g.stroke();
-  g.fillStyle = filled ? COLORS.void : color;
-  g.fillText(text, x + 6, y + 8);
-  g.restore();
-}
-
-/** 重选图标：一圈箭头。没这个图标，玩家只会看到"重选次数 2"这几个字。 */
-function drawRerollIcon(g: CanvasRenderingContext2D, cx: number, cy: number, color: string): void {
-  g.save();
-  g.strokeStyle = color;
-  g.fillStyle = color;
-  g.lineWidth = 1.8;
-  g.lineCap = 'round';
-  g.beginPath();
-  g.arc(cx, cy, 6.5, -Math.PI * 0.12, Math.PI * 1.4);
-  g.stroke();
-  const a = -Math.PI * 0.12;
-  const hx = cx + Math.cos(a) * 6.5;
-  const hy = cy + Math.sin(a) * 6.5;
-  g.beginPath();
-  g.moveTo(hx - 1, hy - 5);
-  g.lineTo(hx + 4, hy + 0.5);
-  g.lineTo(hx - 3.5, hy + 3);
-  g.closePath();
-  g.fill();
-  g.restore();
-}
-
 function inp(hub: InputHub, a: Parameters<InputHub['has']>[0]): boolean {
   return hub.has(a);
 }
@@ -1817,8 +1441,7 @@ function wrap(text: string, perLine: number): string[] {
   for (const ch of text) {
     if (ch === '，' || ch === '。' || ch === '；') {
       line += ch;
-      // 只有标点的一行不要（否则会出现孤零零一个"，"）
-      if (line.replace(/[，。；]/g, '').length > 0) out.push(line);
+      out.push(line);
       line = '';
       continue;
     }

@@ -17,7 +17,7 @@ import { CameraRig } from './camera';
 import { Game, type GameEvent, type RunSummary } from './game';
 import { Renderer } from './render';
 import { Ui, type Screen } from './ui';
-import { MAP_BY_ID, SKINS, TANKS, CARDS } from './data/exports';
+import { MAP_BY_ID, SKINS, TANKS } from './data/exports';
 import {
   SAVE_KEY,
   applyResult,
@@ -76,9 +76,9 @@ export default defineGame({
       onExitToShelf(): void {
         ctx.exit();
       },
-      onChoose(cardId: string, branchId?: string): void {
+      onChoose(cardId: string): void {
         if (!game) return;
-        const res = game.choose(cardId, branchId);
+        const res = game.choose(cardId);
         if (res === 'resume') ui.resume();
       },
       onReroll(): void {
@@ -119,9 +119,6 @@ export default defineGame({
       game.start(tanks, levels, threat);
       renderer = new Renderer(game, rig);
       lastRevived = -1;
-      // 调试入口：控制台里可以直接加经验 / 发卡（?debug 的替代，见 game.debugGive）
-      (globalThis as Record<string, unknown>).__tank = game;
-      (globalThis as Record<string, unknown>).__tankCards = CARDS;
 
       // 涂装：只换 body/light。
       for (const p of game.players) {
