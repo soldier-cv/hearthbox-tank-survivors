@@ -249,3 +249,6 @@ evidence/
 | 机库只画出 3 台坦克，第 4 列与第二行全黑 | `drawTank` 里 `g.restore;` 漏了括号 → 画盾牌侧板时泄漏 save 状态，污染后续所有绘制 | 补上 `()`；这类 bug 用像素探针定位最快 |
 | 双人局一人倒地后永久卡死 | `updatePlayer` 对 `!alive` 直接 return，`reviveT` 永不倒数；`tryRevive` 从未被调用 | 新增 `updateDowned` 并接进 update 循环 |
 | 成就面板数字永远不变 | 平台可调项"已保存值优先于 declare 默认值"，且没有 `setStatus` | 不在平台声明，改在机库里实时读存档 |
+| **敌人站着不动** | `seek(e, dt, ux, uy, 0)` —— 不带攻击的敌人（轻型/侦察/重装）throttle 传了 0，速度恒为 0 | 传 1。凡是"参数是倍率"的地方，0 都是危险的默认值 |
+| **金手指勾了没反应** | `declare` 了 6 条，但 `tuning.moveSpeed` / `fireInterval` 从未被任何代码调用 —— 面板能拖，游戏不读 | 每个可调量都要有真实调用点；写完 grep 一遍 `tuning.xxx` 的使用次数 |
+| 经验倍率实际是平方 | 拾取时乘了一次，`tuning.xpNeed` 里又除了一次 | 倍率只在一个调用链上生效 |

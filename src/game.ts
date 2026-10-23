@@ -613,7 +613,8 @@ export class Game {
     p.st.crit = clamp01(p.base.crit + nz(add.critAdd));
     p.st.critMul = p.base.critMul + nz(add.critMulAdd);
     p.st.projectiles = Math.min(6, p.base.projectiles + nz(add.projectiles));
-    p.st.pierce = Math.min(3, p.base.pierce + weapon.pierce + nz(add.pierce));
+    // 长矛：签名阶段 Ⅱ 起额外穿透
+    p.st.pierce = Math.min(3, p.base.pierce + weapon.pierce + nz(add.pierce) + p.sig.pierceExtra);
 
     // 存算好的派生量，渲染与战斗都读这些
     p.armorFlat = nz(add.armorFlat);
@@ -621,7 +622,9 @@ export class Game {
     p.puddleDps = Math.min(20, nz(add.puddleDps) + (p.tank.signature === 'furnace' ? FURNACE_SIG.puddle[i] * 6 : 0));
     p.falloff = Math.min(1, (p.weapon.noFalloff ? 1 : 0.7) * nzp(mul.falloff));
     p.wallDmg = nzp(mul.wallDmg);
-    p.spreadDeg = Math.max(0, weapon.spread + nz(add.spread) - (p.flags.has('noSpread') ? 999 : 0));
+    // 蜂群：签名把散射收窄（swarmSpread 是角度），其它车用武器本身的散布
+    const baseSpread = p.tank.signature === 'swarm' ? p.sig.swarmSpread : weapon.spread;
+    p.spreadDeg = Math.max(0, baseSpread + nz(add.spread) - (p.flags.has('noSpread') ? 999 : 0));
     p.drones = Math.min(5, nz(add.drones));
     p.mineCd = add.mines ? 2.4 * nzp(mul.mineCd) : 0;
     p.teslaChain = Math.min(4, nz(add.teslaChain));
@@ -737,9 +740,9 @@ export class Game {
     // ---- 移动 ----
     const glide = this.world.glideAt(p.x, p.y);
     const surface = this.world.speedMul(p.x, p.y);
-    let speed = p.st.speed * surface;
+    // 金手指「移动速度」在这里生效
+    let speed = this.o.tuning.moveSpeed(p.st.speed) * surface;
     if (p.desperate) speed *= 1 + sig.lowHpSpeed;
-    if (sig.lostHpDmgPer > 0) speed *= 1;
 
     const mag = Math.hypot(inp.moveX, inp.moveY);
     p.moving = mag > 0.05;
@@ -827,7 +830,8 @@ export class Game {
     const rofBoost = 1 + (p.dashBoost > 0 ? sig.dashRoF : 0);
     p.fireCd -= dt * rofBoost;
     if (p.fireCd <= 0) {
-      p.fireCd = Math.max(0.05, p.st.interval);
+      // 金手指「射速倍率」在这里生效
+      p.fireCd = Math.max(0.05, this.o.tuning.fireInterval(p.st.interval));
       this.fire(p, target);
     }
 
@@ -1034,6 +1038,19 @@ export class Game {
       b.color = p.tank.light;
       this.bullets.push(b);
     }
+  }
+
+  /** 蜂群 Ⅳ：叠满层数时对该目标放一轮突袭（范围伤害 + 视觉爆发）。 */
+  private swarmStrike(p: Player, target: Enemy): void {
+    const r = 70;
+    const dmg = p.st.dmg * 1.6;
+    const list = this.enemiesInRadius(target.x, target.y, r, this.q2);
+    for (const e of list) {
+      this.damageEnemy(e, dmg, p, false, 'swarm');
+    }
+    this.o.fx.ultSwarm(target.x, target.y, r);
+    this.o.fx.blast(target.x, target.y, r * 0.8);
+    this.o.audio.sfx('tesla', 0, 0.8);
   }
 
   private spawnBullet(p: Player, angle: number, dmg: number, crit: boolean, heavy: boolean, radial: boolean): void {
@@ -1273,9 +1290,36 @@ export class Game {
         if (dist2(b.x, b.y, e.x, e.y) > (e.r + b.size) ** 2) continue;
 
         b.hits.push(e.id);
+        const owner = this.players[b.owner];
         const front = e.boss ? false : this.isFrontal(e, b);
-        const dmg = front ? b.dmg * (1 - (e.def.frontalReduction ?? 0)) : b.dmg;
-        this.damageEnemy(e, dmg, this.players[b.owner] ?? this.players[0], b.crit, 'shot');
+        let dmg = front ? b.dmg * (1 - (e.def.frontalReduction ?? 0)) : b.dmg;
+
+        // 长矛·贯穿校射：每多穿透一个目标，这一发伤害累加
+        if (owner && owner.tank.signature === 'lance' && owner.sig.pierceBonus > 0) {
+          const extra = Math.min(owner.sig.pierceBonusMax, (b.hits.length - 1) * owner.sig.pierceBonus);
+          dmg *= 1 + extra;
+        }
+
+        // 蜂群·蜂群协议：连续命中同一目标叠加增伤（换目标清零）
+        if (owner && owner.tank.signature === 'swarm' && owner.sig.swarmStackCap > 0) {
+          if (owner.swarmTarget === e.id) {
+            owner.swarmStacks = Math.min(owner.sig.swarmStackCap, owner.swarmStacks + 2);
+          } else {
+            owner.swarmTarget = e.id;
+            owner.swarmStacks = 2;
+          }
+          dmg *= 1 + owner.swarmStacks / 100;
+          // 阶段 Ⅳ：叠到阈值触发蜂群突袭
+          if (owner.sig.strikeAt > 0 && owner.swarmStacks >= owner.sig.strikeAt * 2) {
+            owner.swarmStacks = 0;
+            this.swarmStrike(owner, e);
+          }
+        }
+
+        this.damageEnemy(e, dmg, owner, b.crit, 'shot');
+
+        // 终焉·要塞协议 Ⅲ：齐射命中后标记，后续受伤 +8%
+        if (owner && owner.sig.markBonus > 0 && b.radial) e.mark = Math.max(e.mark, 2.5);
 
         this.o.fx.hit(b.x, b.y, b.crit ? '#ffe6b0' : e.def.color, b.crit);
         if (b.chain > 0) this.doChain(b, e, dmg);
@@ -1584,7 +1628,8 @@ export class Game {
       if (e.boss) {
         this.updateBoss(e, dt, aim, ux, uy, d);
       } else if (e.def.attack === 'none') {
-        this.seek(e, dt, ux, uy, 0);
+        // 冲撞型：直接压上去（throttle 必须是 1，传 0 会让速度恒为 0）
+        this.seek(e, dt, ux, uy, 1);
       } else if (e.def.standoff && d < e.def.standoff) {
         // 保持距离
         this.seek(e, dt, -ux, -uy, 0.6);

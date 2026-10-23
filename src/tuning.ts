@@ -177,8 +177,9 @@ export function resolveTuning(ctx: GameContext): Tuning {
   return {
     moveSpeed: (base) => baseline.moveSpeed(base) * cheats.value('move-speed'),
     fireInterval: (base) => baseline.fireInterval(base) / cheats.value('fire-rate'),
-    // 经验倍率是"给得更多"，所以是除以需求，而不是乘经验。
-    xpNeed: (level) => baseline.xpNeed(level) / cheats.value('xp-rate'),
+    // 经验倍率只在一处生效：拾取时乘经验（addXp 调用点）。
+    // 如果这里再除以需求，就会变成"乘两次"，倍率 2 实际是 4 倍速。
+    xpNeed: (level) => baseline.xpNeed(level),
     spawnRate: (base) => baseline.spawnRate(base) * cheats.value('spawn-rate'),
     offerQuality: (base) => baseline.offerQuality(base),
   };

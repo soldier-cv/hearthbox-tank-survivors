@@ -53,7 +53,7 @@ export const TANKS: TankDef[] = [
     glow: COLORS.p1Light,
     role: '均衡，新手默认',
     signatureName: '稳定炮座',
-    signatureDesc: '连续静止后伤害提升',
+    signatureDesc: '连续静止 1.5s 后伤害 +12%',
   },
   {
     id: 'echo',
@@ -70,7 +70,7 @@ export const TANKS: TankDef[] = [
     glow: COLORS.p2Light,
     role: '快、灵活、脆',
     signatureName: '轻量履带',
-    signatureDesc: '冲刺更远，冲刺后射速提升',
+    signatureDesc: '冲刺距离 +25%，冲刺后 1s 内射速 +15%',
   },
   {
     id: 'bastion',
@@ -87,7 +87,7 @@ export const TANKS: TankDef[] = [
     glow: COLORS.p2Light,
     role: '肉盾，输出低',
     signatureName: '应急装甲',
-    signatureDesc: '血量低时大幅减伤',
+    signatureDesc: '血量 <30% 时额外减伤 20%，移速 −8%',
   },
   {
     id: 'lance',
@@ -104,7 +104,7 @@ export const TANKS: TankDef[] = [
     glow: COLORS.heal,
     role: '玻璃大炮，穿透',
     signatureName: '贯穿校射',
-    signatureDesc: '每穿透一个目标，该发伤害累加',
+    signatureDesc: '穿透 +1 不衰减；每穿透一个目标，该发伤害 +8%（上限 +24%）',
   },
   {
     id: 'furnace',
@@ -121,7 +121,7 @@ export const TANKS: TankDef[] = [
     glow: COLORS.blast,
     role: '范围清场，慢',
     signatureName: '装药过量',
-    signatureDesc: '爆炸半径提升，移速下降',
+    signatureDesc: '爆炸半径 +25%，移速 −6%',
   },
   {
     id: 'arc',
@@ -138,7 +138,7 @@ export const TANKS: TankDef[] = [
     glow: COLORS.spark,
     role: '连锁，反集群',
     signatureName: '导电链',
-    signatureDesc: '命中后连锁更多目标',
+    signatureDesc: '命中后连锁 1 个目标（70% 伤害）',
   },
   {
     id: 'swarm',
@@ -155,7 +155,7 @@ export const TANKS: TankDef[] = [
     glow: COLORS.drone,
     role: '散射，贴脸爆发',
     signatureName: '蜂群协议',
-    signatureDesc: '散射收窄，连续命中同一目标增伤',
+    signatureDesc: '散射收窄到 ±4°；连续命中同一目标每次 +2%（上限 +20%）',
   },
   {
     id: 'mk2',
@@ -172,7 +172,7 @@ export const TANKS: TankDef[] = [
     glow: COLORS.p1Light,
     role: '全能，靠主动技',
     signatureName: '要塞协议',
-    signatureDesc: '周期性全向齐射',
+    signatureDesc: '每 12s 环形齐射 8 发（每发 40% 伤害）',
   },
 ];
 

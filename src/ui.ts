@@ -511,7 +511,7 @@ export class Ui {
 
   private drawPlayerCard(g: CanvasRenderingContext2D, p: Player, v: { x: number; y: number; w: number; h: number }): void {
     const cw = 208;
-    const ch = 74;
+    const ch = 90;
     const x = v.x + 12;
     const y = v.y + v.h - ch - 12;
 
@@ -571,15 +571,55 @@ export class Ui {
     g.fillStyle = dashReady >= 1 ? COLORS.p2 : COLORS.textDim;
     g.fillRect(x + 112, bombY, 86 * dashReady, 6);
 
+    // 初始技能（签名）：名字 + 实时状态，让玩家看得见它什么时候生效
+    g.textAlign = 'left';
+    g.fillStyle = p.tank.glow;
+    g.font = '9px monospace';
+    g.fillText(`◆ ${p.tank.signatureName}`, x + 10, y + ch - 13);
+    const state = this.sigState(p);
+    if (state) {
+      g.textAlign = 'right';
+      g.fillStyle = COLORS.textBright;
+      g.fillText(state, x + cw - 10, y + ch - 13);
+    }
+
     // 救援进度
     if (p.downed) {
       const r = Math.max(0, Math.min(1, 1 - p.reviveT / CONFIG.combat.reviveTime));
       g.fillStyle = COLORS.grid;
-      g.fillRect(x + 10, y + ch - 10, cw - 20, 5);
+      g.fillRect(x + 10, y + ch - 6, cw - 20, 4);
       g.fillStyle = COLORS.heal;
-      g.fillRect(x + 10, y + ch - 10, (cw - 20) * r, 5);
+      g.fillRect(x + 10, y + ch - 6, (cw - 20) * r, 4);
     }
     g.restore();
+  }
+
+  /** 签名技能的实时状态文字（无状态时返回空串）。 */
+  private sigState(p: Player): string {
+    const s = p.sig;
+    switch (p.tank.signature) {
+      case 'anvil':
+        if (p.hurtFlash > 0) return '';
+        if (p.still >= s.stillNeed) return `定格 +${Math.round(s.stillDmg * 100)}%`;
+        if (s.heavyEvery > 0 && p.heavyCharge > 0) return `重击 ${Math.round(p.heavyCharge * 100)}%`;
+        return '';
+      case 'echo':
+        return p.dashBoost > 0 ? `射速 +${Math.round(s.dashRoF * 100)}%` : '';
+      case 'bastion':
+        return p.desperate ? `应急装甲 减伤 ${Math.round(s.lowHpReduction * 100)}%` : '';
+      case 'lance':
+        return s.railDmg > 0 ? `轨道炮 ${(p.railCd).toFixed(1)}s` : '贯穿 +1';
+      case 'furnace':
+        return `爆炸 ${Math.round(p.blastRadius)}`;
+      case 'arc':
+        return `连锁 ${p.weapon.chain}`;
+      case 'swarm':
+        return p.swarmStacks > 0 ? `叠 ${Math.round(p.swarmStacks / 2)} 层` : '散射';
+      case 'mk2':
+        return p.barrageCd > 0 ? `齐射 ${p.barrageCd.toFixed(1)}s` : '齐射就绪';
+      default:
+        return '';
+    }
   }
 
   private drawSchoolChips(g: CanvasRenderingContext2D, game: Game): void {
