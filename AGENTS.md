@@ -8,10 +8,10 @@
 阶段：全部系统已实现，可在 PC 浏览器完整游玩
 ```
 
-- 仓库已初始化（`main` 分支，暂无远端）
+- 仓库：`main` 分支，远端 `git@github.com:soldier-cv/hearthbox-tank-survivors.git`（SSH，已跟踪）
 - 源码在 `src/`（21 个模块，TypeScript）
 - `legacy/` 是改造前的独立网页 demo，**只作参考、不参与构建、不要修改**
-- 产物：`dist/game.js`（约 290 KB / 23 模块，单文件 ESM，SDK 已内联）
+- 产物：`dist/game.js`（约 293 KB / 23 模块，单文件 ESM，SDK 已内联）
 
 **已跑通的链路**：标题页 → 机库（4 页签：坦克 / 地图 / 威胁 / 战绩）→ 开局 →
 战斗（8 分钟、波次、BOSS、选卡、双人分屏）→ 结算 → 废铁落盘 → 机库读回。
