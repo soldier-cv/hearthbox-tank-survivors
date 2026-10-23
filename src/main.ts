@@ -53,6 +53,8 @@ export default defineGame({
     let rig: CameraRig | null = null;
     let renderer: Renderer | null = null;
     let clock = 0;
+    /** 上次看到的救起时刻，用来只在"刚救起"那一帧调用 afterRevive。 */
+    let lastRevived = -1;
 
     const hooks = {
       onStart(twoPlayer: boolean): void {
@@ -116,6 +118,7 @@ export default defineGame({
       game.threat = threat;
       game.start(tanks, levels, threat);
       renderer = new Renderer(game, rig);
+      lastRevived = -1;
 
       // 涂装：只换 body/light。
       for (const p of game.players) {
@@ -199,16 +202,22 @@ export default defineGame({
       if (game && rig && !inMenu) {
         const p1 = game.players[0]!;
         const p2 = game.players.length > 1 ? game.players[1]! : null;
-        const downed = !!p2 && p2.downed;
         const split = ctx.options.choice('split-mode') as 'auto' | 'never' | 'always';
-        if (p1.alive) {
-          rig.update(dt, p1, p2 && p2.alive ? p2 : null, p1.turretAngle, split, downed);
-        } else if (p2 && p2.alive) {
-          rig.update(dt, p2, null, p2.turretAngle, split, true);
-        }
+
         game.update(dt, [input.p1, input.p2]);
-        if (rig.mode === 'split') ui.rigSplit = true;
-        else ui.rigSplit = false;
+
+        // 队友被救起 → 保持合屏 0.6s 再重新判定（docs/camera.md 第 8 节）
+        if (game.justRevivedAt > lastRevived) {
+          lastRevived = game.justRevivedAt;
+          rig.afterRevive();
+        }
+
+        const downed = !p1.alive || (!!p2 && p2.downed);
+        const lead = p1.alive ? p1 : (p2 && p2.alive ? p2 : p1);
+        const mate = p1.alive && p2 && p2.alive ? p2 : null;
+        rig.update(dt, lead, mate, lead.turretAngle, split, downed);
+
+        ui.rigSplit = rig.mode === 'split';
         // 强制合屏：升级与暂停期间
         if (ui.screen !== 'playing') rig.forceMerge(0.6);
       } else if (rig) {

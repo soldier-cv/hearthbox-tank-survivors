@@ -12,3 +12,6 @@ playwright-report/
 
 # 本地验收截图：evidence/ 里的正式存证才入库
 evidence/tmp/
+
+# Playwright MCP 临时日志
+.playwright-mcp/

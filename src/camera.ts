@@ -75,9 +75,9 @@ export class CameraRig {
     this.forceUntil = this.time + seconds;
   }
 
-  /** 倒地后的重新判定延迟。 */
+  /** 队友被救起后，保持合屏 0.6 秒再重新判定分屏（docs/camera.md 第 8 节）。 */
   afterRevive(): void {
-    this.forceMerge(-CAMERA.afterRevive);
+    this.forceMerge(CAMERA.afterRevive);
     this.dwell = 0;
   }
 

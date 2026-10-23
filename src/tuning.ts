@@ -159,82 +159,16 @@ export function declareOptions(ctx: GameContext): void {
     ],
   });
 
-  // ---- 成就与统计 ----
-  // 平台当前只能"声明时取一次值"，会话内不刷新（docs/systems.md 已记录）。
-  const progress = ctx.storage.get<{
-    bestTime?: number;
-    bestScore?: number;
-    bestKills?: number;
-    bestLevel?: number;
-    clears?: number;
-    tanks?: Record<string, { level: number }>;
-  }>('progress');
-  const stats = ctx.storage.get<{ kills?: number }>('stats');
-
-  const tanksOwned = progress?.tanks ? Object.keys(progress.tanks).length : 0;
-
-  ctx.options.declare({
-    id: 'best-time',
-    name: '最高存活',
-    kind: 'choice',
-    scope: 'status',
-    defaultValue: 'none',
-    choices: [{ value: 'none', label: formatTime(progress?.bestTime ?? 0) }],
-  });
-
-  ctx.options.declare({
-    id: 'best-score',
-    name: '最高得分',
-    kind: 'choice',
-    scope: 'status',
-    defaultValue: 'none',
-    choices: [{ value: 'none', label: String(progress?.bestScore ?? 0) }],
-  });
-
-  ctx.options.declare({
-    id: 'best-kills',
-    name: '单局最多击毁',
-    kind: 'choice',
-    scope: 'status',
-    defaultValue: 'none',
-    choices: [{ value: 'none', label: String(progress?.bestKills ?? 0) }],
-  });
-
-  ctx.options.declare({
-    id: 'best-level',
-    name: '最高等级',
-    kind: 'choice',
-    scope: 'status',
-    defaultValue: 'none',
-    choices: [{ value: 'none', label: String(progress?.bestLevel ?? 0) }],
-  });
-
-  ctx.options.declare({
-    id: 'clears',
-    name: '通关次数',
-    kind: 'choice',
-    scope: 'status',
-    defaultValue: 'none',
-    choices: [{ value: 'none', label: String(progress?.clears ?? 0) }],
-  });
-
-  ctx.options.declare({
-    id: 'total-kills',
-    name: '累计击毁',
-    kind: 'choice',
-    scope: 'status',
-    defaultValue: 'none',
-    choices: [{ value: 'none', label: String(stats?.kills ?? 0) }],
-  });
-
-  ctx.options.declare({
-    id: 'tanks-owned',
-    name: '已收集坦克',
-    kind: 'choice',
-    scope: 'status',
-    defaultValue: 'none',
-    choices: [{ value: 'none', label: `${tanksOwned} / 8` }],
-  });
+  // ---- 成就与统计：不在这里声明 ----
+  //
+  // 平台的可调项状态是"已保存值优先于 declare 的默认值"，且 OptionsApi 没有
+  // 更新值的 setter（重复 declare 同 id 会抛错）。也就是说：一旦把"最高得分"
+  // 这类数字 declare 成可调项，它会永远显示**第一次写入时**的值 —— 显示假数据
+  // 比没有面板更糟。所以成就与统计改为机库内画布界面（ui.ts 的"战绩"页签），
+  // 平台的 status 面板留给未来平台补上 setStatus(id, value) 之后再接。
+  //
+  // 金手指与设置不受影响：它们的"值"由玩家在平台面板写，游戏只读。
+  void formatTime;
 }
 
 /** 把金手指接到 baseline 上。只有这里知道"哪个金手指改哪个数值"。 */

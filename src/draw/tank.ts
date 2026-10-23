@@ -647,7 +647,7 @@ function drawSideStructure(
         g.moveTo(h * 0.18, Math.min(yHull, yOuter));
         g.lineTo(h * 0.18, Math.max(yHull, yOuter));
         g.stroke();
-        g.restore;
+        g.restore();
 
         g.save();
         g.globalAlpha = 0.42;

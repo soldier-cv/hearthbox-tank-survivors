@@ -654,7 +654,11 @@ export class Game {
     for (let i = 0; i < this.players.length; i += 1) {
       const p = this.players[i];
       const inp = inputs[i];
-      if (inp) this.updatePlayer(p, inp, step);
+      if (p.alive) {
+        if (inp) this.updatePlayer(p, inp, step);
+      } else if (p.downed) {
+        this.updateDowned(p, step);
+      }
     }
 
     this.updateEnemies(step);
@@ -1986,6 +1990,25 @@ export class Game {
     this.end(false);
   }
 
+  /**
+   * 倒地玩家。design（docs/levels.md 第 6 节）：队友贴近 48px 持续救援，
+   * reviveT 从满值倒计时到 0 即救起；离开范围则缓慢回涨，逼玩家"守着他救"。
+   * 不会流血死亡 —— 倒地的人在整局里都能被救回。
+   */
+  private updateDowned(p: Player, dt: number): void {
+    const mate = this.players.find((q) => q !== p && q.alive);
+    const inRange = !!mate && dist2(mate.x, mate.y, p.x, p.y) <= CONFIG.combat.reviveRadius ** 2;
+    if (inRange) {
+      p.reviveT -= dt;
+      if (p.reviveT <= 0) {
+        p.reviveT = 0;
+        this.revive(p);
+      }
+    } else {
+      p.reviveT = Math.min(CONFIG.combat.reviveTime, p.reviveT + dt * 0.6);
+    }
+  }
+
   /** 队友救援。 */
   tryRevive(): void {
     for (const p of this.players) {
@@ -1993,15 +2016,23 @@ export class Game {
       const mate = this.players.find((q) => q !== p && q.alive);
       if (!mate) continue;
       if (dist2(mate.x, mate.y, p.x, p.y) > CONFIG.combat.reviveRadius ** 2) continue;
-      p.downed = false;
-      p.alive = true;
-      p.hp = Math.round(p.maxHp * CONFIG.combat.reviveHpRatio);
-      p.invuln = 1;
-      p.emergencyCharges = p.sig.emergencyCharges;
-      this.emit({ type: 'toast', text: `${p.name} 被救起` });
-      this.o.audio.sfx('evolve');
+      this.revive(p);
     }
   }
+
+  private revive(p: Player): void {
+    p.downed = false;
+    p.alive = true;
+    p.hp = Math.round(p.maxHp * CONFIG.combat.reviveHpRatio);
+    p.invuln = 1;
+    p.emergencyCharges = p.sig.emergencyCharges;
+    this.justRevivedAt = this.time;
+    this.emit({ type: 'toast', text: `${p.name} 被救起` });
+    this.o.audio.sfx('evolve');
+  }
+
+  /** 最近一次救起的时间，供相机 afterRevive 用（main 读取）。 */
+  justRevivedAt = -1;
 
   // ===================================================================
   // 拾取与危险区

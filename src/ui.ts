@@ -53,7 +53,7 @@ export class Ui {
   screen: Screen = 'title';
   twoPlayer = false;
   private focus = 0;
-  private tab: 0 | 1 | 2 = 0;
+  private tab: 0 | 1 | 2 | 3 = 0;
   private result: RunSummary | null = null;
   /** 进化预览（机库里按 north 打开）。 */
   private evolutionView: { tankId: string; page: number } | null = null;
@@ -254,10 +254,10 @@ export class Ui {
     }
 
     // 页签切换
-    if (this.input.has('tabPrev')) { this.tab = ((this.tab + 2) % 3) as 0 | 1 | 2; this.focus = 0; this.hooks.sfx('ui'); }
-    if (this.input.has('tabNext')) { this.tab = ((this.tab + 1) % 3) as 0 | 1 | 2; this.focus = 0; this.hooks.sfx('ui'); }
+    if (this.input.has('tabPrev')) { this.tab = ((this.tab + 3) % 4) as 0 | 1 | 2 | 3; this.focus = 0; this.hooks.sfx('ui'); }
+    if (this.input.has('tabNext')) { this.tab = ((this.tab + 1) % 4) as 0 | 1 | 2 | 3; this.focus = 0; this.hooks.sfx('ui'); }
 
-    const count = this.tab === 0 ? TANKS.length : this.tab === 1 ? MAPS.length : THREATS.length;
+    const count = this.tab === 0 ? TANKS.length : this.tab === 1 ? MAPS.length : this.tab === 2 ? THREATS.length : this.statRows().length;
     if (this.focus >= count) this.focus = 0;
     if (this.input.has('menuLeft')) {
       this.focus = (this.focus + count - 1) % count;
@@ -307,18 +307,17 @@ export class Ui {
           this.hooks.sfx('ui');
         }
       }
-    } else {
+    } else if (this.tab === 2) {
       const th = THREATS[this.focus]!;
       if (this.input.has('confirm')) {
-        const need = threatLocked(p, th.id === 'normal' ? 1 : this.focus + 1, this.selectedIds());
+        const need = threatLocked(p, this.focus + 1, this.selectedIds());
         if (need > 0) this.notify(`需要坦克升到 Lv${[0, 0, 5, 10, 15][this.focus + 1]} · 还差 ${need} 级`);
         else { p.selected.threat = this.focus + 1; this.hooks.onSave(); this.hooks.sfx('ui'); }
       }
+      void th;
     }
+    // tab 3（战绩）只读，无确认动作
 
-    if (this.input.has('start') || this.input.has('skinNext') === false && false) {
-      // start = 直接出发
-    }
     if (this.input.has('start')) {
       this.tryStart();
     }
@@ -327,6 +326,26 @@ export class Ui {
       this.hooks.sfx('ui');
     }
     void dt;
+  }
+
+  /** 战绩页的行。数据全部来自存档，实时准确（不像平台 status 面板会冻结）。 */
+  private statRows(): [string, string][] {
+    const p = this.progress;
+    if (!p) return [];
+    return [
+      ['最高存活', formatTime(p.bestTime)],
+      ['最高得分', String(p.bestScore)],
+      ['单局最多击毁', String(p.bestKills)],
+      ['到达过的最高等级', String(p.bestLevel)],
+      ['通关次数', String(p.clears)],
+      ['累计击毁', String(p.totalKills)],
+      ['累计时长', formatTime(p.totalTime)],
+      ['击杀 BOSS', String(p.bossKills)],
+      ['已收集坦克', `${p.owned.length} / ${TANKS.length}`],
+      ['已解锁地图', `${p.maps.length} / ${MAPS.length}`],
+      ['已购涂装', `${p.skins.length} / ${SKINS.length}`],
+      ['总局数', String(p.runs)],
+    ];
   }
 
   private cycleSkin(p: Progress, tankId: string, dir: number): void {
@@ -668,7 +687,7 @@ export class Ui {
     g.fillStyle = COLORS.textBright;
     g.font = '16px monospace';
     g.fillText('机库', 16, 23);
-    const tabs = ['坦克', '地图', '威胁'];
+    const tabs = ['坦克', '地图', '威胁', '战绩'];
     for (let i = 0; i < tabs.length; i += 1) {
       const x = 108 + i * 84;
       const on = this.tab === i;
@@ -691,10 +710,10 @@ export class Ui {
       g.restore();
       return;
     }
-
     if (this.tab === 0) this.drawTankTab(g, p, time);
     else if (this.tab === 1) this.drawMapTab(g, p);
-    else this.drawThreatTab(g, p);
+    else if (this.tab === 2) this.drawThreatTab(g, p);
+    else this.drawStatTab(g, p);
 
     // 底栏
     g.fillStyle = 'rgba(18,24,28,0.9)';
@@ -955,6 +974,65 @@ export class Ui {
     g.fillText('难度主要来自兵种数与精英率，数值只微调。', 40, dy + 118);
     g.fillText('威胁越高废铁越多 —— 主动承担风险应有回报（地图不给，地图是选择）。', 40, dy + 140);
     g.fillText('高威胁需要对应坦克等级：尺度与对手同步上升，不会越级碾压。', 40, dy + 162);
+  }
+
+  /** 战绩页：12 行只读统计，全部来自存档。 */
+  private drawStatTab(g: CanvasRenderingContext2D, p: Progress): void {
+    const rows = this.statRows();
+    const cols = 2;
+    const cw = 420;
+    const rowH = 46;
+    const gx = (W - cols * cw) / 2;
+    const gy = 96;
+
+    for (let i = 0; i < rows.length; i += 1) {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const x = gx + col * cw;
+      const y = gy + row * rowH;
+      const on = this.focus === i;
+      const [label, value] = rows[i]!;
+
+      g.fillStyle = on ? 'rgba(242,177,60,0.14)' : 'rgba(26,34,40,0.7)';
+      roundRect(g, x, y, cw - 14, rowH - 8, 3);
+      g.fill();
+      if (on) {
+        g.strokeStyle = COLORS.p1;
+        g.lineWidth = 1.5;
+        g.stroke();
+      }
+      g.textAlign = 'left';
+      g.textBaseline = 'middle';
+      g.fillStyle = COLORS.text;
+      g.font = '13px monospace';
+      g.fillText(label, x + 14, y + (rowH - 8) / 2);
+      g.textAlign = 'right';
+      g.fillStyle = on ? COLORS.p1 : COLORS.textBright;
+      g.font = '16px monospace';
+      g.fillText(value, x + cw - 28, y + (rowH - 8) / 2);
+    }
+
+    // 底部说明：为什么成就在这里而不是平台面板
+    const dy = gy + Math.ceil(rows.length / cols) * rowH + 14;
+    g.textAlign = 'left';
+    g.fillStyle = COLORS.textDim;
+    g.font = '11px monospace';
+    g.fillText(
+      '成就与统计画在机库里，而不是平台的「成就面板」：',
+      24,
+      dy,
+    );
+    g.fillText(
+      '平台的可调项没有"更新值"的接口，第一次写入后就会冻结 —— 显示假数据比没有面板更糟。',
+      24,
+      dy + 20,
+    );
+    g.fillText(
+      '这里的数据每次打开都从存档重读，所以永远实时。等平台补上 setStatus 后再接平台面板。',
+      24,
+      dy + 40,
+    );
+    void p;
   }
 
   private poolText(threat: number): string {
