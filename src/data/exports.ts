@@ -5,8 +5,8 @@
 export { TANKS, SKINS, SKIN_BY_ID, TANK_BY_ID, FREE_TANKS } from './tanks';
 export type { TankDef, StatPoint, WeaponId, SignatureId, SkinDef } from './tanks';
 
-export { CARDS, CARD_BY_ID, SUPPLY_CARD, schoolCards, schoolUltimate } from './cards';
-export type { CardDef, Add, Mul, Flag } from './cards';
+export { CARDS, CARD_BY_ID, BRANCH_BY_ID, SUPPLY_CARD, cardsOfTag, branchOf } from './cards';
+export type { CardDef, CardBranch, Add, Mul, Flag } from './cards';
 
 export {
   ENEMIES, ENEMY_BY_ID, AFFIXES, AFFIX_BY_ID, BOSSES, WAVES, ROLLS,

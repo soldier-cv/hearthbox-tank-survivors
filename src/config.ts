@@ -83,6 +83,40 @@ export const CONFIG = {
     clear: 400,
     firstClear: 800,
   },
+  /**
+   * 卡牌机制的常数（docs/cards-v2.md 第 6 节）。
+   *
+   * 逻辑层只读这里，卡表只写"改哪一项"。
+   */
+  cards: {
+    grenade: { cd: 6, r: 70, dmg: 80, range: 220, shellLife: 1.2, count: 1, twinOffset: 40 },
+    napalm: { cd: 4.5, r: 60, dps: 8, puddleLife: 3, range: 340, shellLife: 0.45, coneR: 220, coneArc: 0.9, coneRatio: 0.5 },
+    cone: { r: 135, arc: 0.61, dmgRatio: 0.45, cd: 2.2, chillT: 1.6 },
+    tesla: { cd: 2.8, chain: 3, dmgRatio: 0.45, jump: 90, pillarLife: 8, pillarCd: 1.5, pillarR: 120 },
+    drone: { cd: 1.4, dmgRatio: 0.55, speed: 460, life: 1.1, missileCd: 3, missileR: 50, missileRatio: 0.7, shieldRegen: 6 },
+    mine: { cd: 2.4, dmgRatio: 1.6, trigger: 80, life: 15, jumpMul: 1.4, tetherRange: 220, tetherSlow: 0.4 },
+    missile: { cd: 3, dmgRatio: 0.5, speed: 380, turn: 4.5, blast: 40 },
+    turret: { life: 15, cd: 0.85, dmgRatio: 0.6, r: 14, range: 320, max: 2, heavyMul: 1.4, heavyCd: 1.3 },
+    well: { cd: 6, r: 180, dur: 1.2, pull: 300, dmgRatio: 1.6, singularityDur: 2, singularityR: 120, inertSlow: 0.45, inertVuln: 0.2 },
+    storm: { cd: 1.2, r: 360, dmgRatio: 0.6, arcLife: 2, arcR: 46, arcTick: 0.35 },
+    reflect: { dmgRatio: 0.8, speed: 420, life: 0.5 },
+    rail: {
+      cd: 5, charge: 0.35, pierce: 4, dmgMul: 3, speedMul: 1.6, slow: 0.4,
+      overloadCharge: 0.7, overloadDmg: 4, overloadPierce: 99,
+      fastCd: 2.5, fastDmg: 2, fastPierce: 2,
+    },
+    stop: { cd: 45, dur: 1.2, boost: 0.4, boostT: 3 },
+    heat: { max: 100, perShot: 9, rest: 1.0, restFast: 0.6, redAt: 0.7, redMul: 1.25, redSlow: 0.1, cool: 12 },
+    aura: { r: 260 },
+    phase: { dmg: 90, delay: 0.35, r: 70, slow: 0.45 },
+    chill: { t: 1.5, root: 0.5, rootAfter: 1 },
+    regen: { combat: 1.2, lowAt: 0.3, lowMul: 3, outOfCombat: 2.5, share: 10 },
+    react: { t: 0.6, mul: 0.5 },
+    pickupShock: { r: 100, dmg: 40 },
+    scrapDrop: { chance: 0.12, scrap: 4 },
+    /** 掉落率卡的换算：卡上 +10% → 每次击杀约 1.2% 掉补给。 */
+    drops: { base: 0.12 },
+  },
 } as const;
 
 /**
@@ -138,25 +172,86 @@ export const EXT_COLORS = {
 
 export type ColorKey = keyof typeof COLORS;
 
-/** 流派。每个流派有自己的强调色，用于卡片与 HUD。 */
-export const SCHOOLS = ['fire', 'pierce', 'blast', 'auto', 'survive'] as const;
-export type School = (typeof SCHOOLS)[number];
+/** 卡类别。只用于权重加成与"三张至少两类"，不再表示等级序列。 */
+export const CARD_TAGS = ['direct', 'area', 'control', 'auto', 'survive', 'economy'] as const;
+export type CardTag = (typeof CARD_TAGS)[number];
 
-export const SCHOOL_COLORS: Record<School, string> = {
-  fire: COLORS.p1,
-  pierce: COLORS.p2,
-  blast: COLORS.blast,
+export const TAG_COLORS: Record<CardTag, string> = {
+  direct: COLORS.p1,
+  area: COLORS.blast,
+  control: COLORS.p2,
   auto: COLORS.drone,
   survive: COLORS.heal,
+  economy: COLORS.textBright,
 };
 
-export const SCHOOL_NAMES: Record<School, string> = {
-  fire: '火力',
-  pierce: '穿透',
-  blast: '爆破',
-  auto: '自动化',
+export const TAG_NAMES: Record<CardTag, string> = {
+  direct: '直射',
+  area: '面域',
+  control: '场控',
+  auto: '自主',
   survive: '生存',
+  economy: '经济',
 };
+
+/**
+ * 稀有度（docs/cards-v2.md 第 3 节）。
+ *
+ * **不是强度阶梯**：它只决定出现频率与构筑角色。做成"越稀有越强"会让玩家跳过白卡。
+ */
+export const RARITIES = ['common', 'refined', 'military', 'rare', 'prototype'] as const;
+export type Rarity = (typeof RARITIES)[number];
+
+export const RARITY_NAMES: Record<Rarity, string> = {
+  common: '常规',
+  refined: '精制',
+  military: '军用',
+  rare: '稀有',
+  prototype: '原型',
+};
+
+export const RARITY_COLORS: Record<Rarity, string> = {
+  common: '#d8dde6',
+  refined: '#6fcf7a',
+  military: '#4aa3ff',
+  rare: '#f2b13c',
+  prototype: '#ff4d4d',
+};
+
+/** 出现权重（每次抽新装置时）。 */
+export const RARITY_WEIGHT: Record<Rarity, number> = {
+  common: 52,
+  refined: 26,
+  military: 14,
+  rare: 6,
+  prototype: 2,
+};
+
+/** 距离轴。 */
+export const AXES = ['near', 'mid', 'far', 'none'] as const;
+export type CardAxis = (typeof AXES)[number];
+export const AXIS_NAMES: Record<CardAxis, string> = {
+  near: '近',
+  mid: '中',
+  far: '远',
+  none: '自主',
+};
+
+/** 卡池规则（docs/cards-v2.md 第 7 节）。 */
+export const CARD_RULES = {
+  /** 每张卡的改装方向数（白卡 2，其余 3），抽到改装时展示其中 2 个。 */
+  shownBranches: 2,
+  /** 一局最多几张红卡。 */
+  maxPrototypes: 2,
+  /** 红卡最早出现时间（秒）。 */
+  prototypeAfter: 240,
+  /** 连续几次升级没出金/红就保底。 */
+  pityEvery: 6,
+  /** 同类已有 ≥2 张时，该类新装置权重倍率。 */
+  sameTagMul: 1.2,
+  /** 同类 ≥ 这个张数才吃加成。 */
+  sameTagAt: 2,
+} as const;
 
 /** 阶段。 */
 export const PHASES = ['集结', '推进', '压制', '割据', '终局'] as const;

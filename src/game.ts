@@ -10,13 +10,16 @@ import {
   PHASE_TABLE,
   SPAWN,
   THREATS,
-  SCHOOLS,
-  type School,
+  CARD_RULES,
+  RARITY_WEIGHT,
+  type CardTag,
 } from './config';
 import {
   CARDS,
+  CARD_BY_ID,
   SUPPLY_CARD,
   type CardDef,
+  type CardBranch,
   type Add,
   type Mul,
   type Flag,
@@ -93,6 +96,16 @@ export interface Bullet {
   radial: boolean;
   doubleBlast: boolean;
   chainBlast: number;
+  /** 爆炸伤害倍率（集中装药）。 */
+  blastRatio: number;
+  /** 穿墙飞行（空爆手雷 / 穿墙弹）。 */
+  ghost: boolean;
+  /** 追踪转向速度（rad/s，0 = 不追踪）。 */
+  homing: number;
+  /** 抛射体：寿命结束时落地爆炸（手雷 / 燃油弹）。 */
+  shell: boolean;
+  /** 落地火池的持续伤害与时长。 */
+  puddleLife: number;
   color: string;
   size: number;
   /** 穿透时已命中的敌人，避免重复结算。 */
@@ -126,6 +139,13 @@ export interface Enemy {
   slow: number;
   slowT: number;
   mark: number;
+  /** 额外受伤比例（感电 / 脆化）。 */
+  vuln: number;
+  vulnT: number;
+  /** 定身剩余（冻结）。 */
+  rootT: number;
+  /** 着火剩余（凝固配方拖火痕）。 */
+  burnT: number;
   elite: boolean;
   affix: AffixDef | null;
   affix2: AffixDef | null;
@@ -139,6 +159,104 @@ export interface Enemy {
   treadT: number;
   wobble: number;
   dead: boolean;
+}
+
+/** 卡牌算出来的"这一局有什么"（由 recalc 汇总，战斗逻辑只读它）。 */
+export interface Kit {
+  minRange: number;
+  dropRate: number;
+  bounce: number;
+  chill: number;
+  chillT: number;
+  frostVuln: number;
+  auraSlow: number;
+  auraR: number;
+  reflect: number;
+  reflectPierce: number;
+  reflectDmg: number;
+  missiles: number;
+  missileDmg: number;
+  missileCd: number;
+  turrets: number;
+  turretCd: number;
+  wells: number;
+  wellCd: number;
+  storm: number;
+  stormCd: number;
+  stormDmg: number;
+  grenades: number;
+  grenadeCd: number;
+  grenadeR: number;
+  napalm: number;
+  napalmCd: number;
+  napalmR: number;
+  napalmDps: number;
+  napalmLife: number;
+  coneCd: number;
+  coneR: number;
+  coneDmg: number;
+  heatMax: number;
+  stops: number;
+  stopCd: number;
+  stopDur: number;
+  rail: boolean;
+  railCd: number;
+  railCharge: number;
+  railDmg: number;
+  railPierce: number;
+  railSlow: number;
+  dashMax: number;
+  regenBase: number;
+}
+
+function emptyKit(): Kit {
+  const C = CONFIG.cards;
+  return {
+    minRange: 0,
+    dropRate: 0,
+    bounce: 0,
+    chill: 0,
+    chillT: C.chill.t,
+    frostVuln: 0,
+    auraSlow: 0,
+    auraR: C.aura.r,
+    reflect: 0,
+    reflectPierce: 0,
+    reflectDmg: C.reflect.dmgRatio,
+    missiles: 0,
+    missileDmg: C.missile.dmgRatio,
+    missileCd: C.missile.cd,
+    turrets: 0,
+    turretCd: C.turret.cd,
+    wells: 0,
+    wellCd: C.well.cd,
+    storm: 0,
+    stormCd: C.storm.cd,
+    stormDmg: C.storm.dmgRatio,
+    grenades: 0,
+    grenadeCd: C.grenade.cd,
+    grenadeR: C.grenade.r,
+    napalm: 0,
+    napalmCd: C.napalm.cd,
+    napalmR: C.napalm.r,
+    napalmDps: C.napalm.dps,
+    napalmLife: C.napalm.puddleLife,
+    coneCd: C.cone.cd,
+    coneR: C.cone.r,
+    coneDmg: C.cone.dmgRatio,
+    heatMax: 0,
+    stops: 0,
+    stopCd: C.stop.cd,
+    stopDur: C.stop.dur,
+    rail: false,
+    railCd: C.rail.cd,
+    railCharge: C.rail.charge,
+    railDmg: C.rail.dmgMul,
+    railPierce: C.rail.pierce,
+    railSlow: C.rail.slow,
+    dashMax: 1,
+    regenBase: 0,
+  };
 }
 
 export interface Player {
@@ -221,6 +339,36 @@ export interface Player {
   chainBlast: number;
   radial: number;
   nova: boolean;
+  /** 卡牌汇总。 */
+  kit: Kit;
+  /** 超载核心：热量与停火。 */
+  heat: number;
+  overheat: number;
+  /** 时停核心。 */
+  stopCd: number;
+  stopT: number;
+  /** 临时射速加成剩余（时停·长时）。 */
+  rapidT: number;
+  /** 轨道炮（卡）。 */
+  railCdCard: number;
+  railCharge: number;
+  /** 副武器冷却。 */
+  grenadeCd: number;
+  napalmCd: number;
+  coneCd: number;
+  missileCd: number;
+  turretCd: number;
+  wellCd: number;
+  stormCd: number;
+  /** 冲刺充能。 */
+  dashMax: number;
+  dashLeft: number;
+  /** 最近一次受击时间（脱战回血用）。 */
+  lastHurt: number;
+  /** 反应装甲窗口。 */
+  reactT: number;
+  /** 拾取漩涡冷却。 */
+  shockT: number;
 }
 
 export interface Pickup {
@@ -268,6 +416,14 @@ export interface Mine {
   dmg: number;
   life: number;
   owner: number;
+  /** 磁吸：靠近的敌人会被拽过来。 */
+  homing: boolean;
+  /** 绊索：范围内的敌人被拖向雷。 */
+  tether: boolean;
+  /** 跳雷：弹起后空爆。 */
+  jump: boolean;
+  vx: number;
+  vy: number;
 }
 
 export interface Drone {
@@ -277,6 +433,63 @@ export interface Drone {
   x: number;
   y: number;
   cd: number;
+  /** 蜂群护盾：可挡子弹。 */
+  shield: boolean;
+  /** 被击落后的重生倒计时。 */
+  down: number;
+  /** 挂载导弹冷却。 */
+  missileCd: number;
+}
+
+/** 哨戒炮台：部署后独立开火。 */
+export interface Turret {
+  alive: boolean;
+  owner: number;
+  x: number;
+  y: number;
+  angle: number;
+  life: number;
+  maxLife: number;
+  cd: number;
+  dmg: number;
+  r: number;
+  range: number;
+  heavy: boolean;
+  smart: boolean;
+}
+
+/** 引力井 / 电极柱。 */
+export interface Well {
+  alive: boolean;
+  owner: number;
+  x: number;
+  y: number;
+  life: number;
+  maxLife: number;
+  r: number;
+  pull: number;
+  dmg: number;
+  singularity: boolean;
+  inert: boolean;
+  /** >0 时是在放电的电极柱（不是引力井）。 */
+  pillar: number;
+  tick: number;
+  slow: number;
+}
+
+/** 延迟爆炸（相位冲刺残影、跳雷都走这里）。 */
+export interface DelayedBoom {
+  alive: boolean;
+  owner: number;
+  x: number;
+  y: number;
+  r: number;
+  dmg: number;
+  t: number;
+  slow: number;
+  /** >0 时落地留火池。 */
+  puddle: number;
+  puddleLife: number;
 }
 
 export interface ArcFx {
@@ -312,9 +525,19 @@ export interface RingFx {
   width: number;
 }
 
+/** 一次升级里的一张候选。改装卡的 branches 是两个可选方向。 */
+export interface CardOffer {
+  card: CardDef;
+  /** 改装时展示的方向（新装置为空）。 */
+  branches: CardBranch[];
+  isUpgrade: boolean;
+  /** 这张卡已有的改装方向 id。 */
+  ownedBranch: string | null;
+}
+
 export type GameEvent =
-  | { type: 'levelup'; offers: CardDef[]; level: number }
-  | { type: 'levelupMore'; offers: CardDef[]; level: number }
+  | { type: 'levelup'; offers: CardOffer[]; level: number }
+  | { type: 'levelupMore'; offers: CardOffer[]; level: number }
   | { type: 'toast'; text: string }
   | { type: 'over'; data: RunSummary }
   | { type: 'win'; data: RunSummary }
@@ -395,6 +618,9 @@ export class Game {
   puddles: Puddle[] = [];
   mines: Mine[] = [];
   drones: Drone[] = [];
+  turrets: Turret[] = [];
+  wells: Well[] = [];
+  booms: DelayedBoom[] = [];
   arcs: ArcFx[] = [];
   tracks: TrackMark[] = [];
   rings: RingFx[] = [];
@@ -405,12 +631,18 @@ export class Game {
   kills = 0;
   score = 0;
   bosses = 0;
+  /** 废料回收卡额外攒的废铁。 */
+  bonusScrap = 0;
 
   pendingLevels = 0;
-  offers: CardDef[] = [];
-  takenUltimates = new Set<string>();
-  takenCards = new Set<string>();
-  schoolLevel: Record<School, number> = { fire: 0, pierce: 0, blast: 0, auto: 0, survive: 0 };
+  offers: CardOffer[] = [];
+  /** 已拥有的装置 → 改装方向 id（null = 只拿了基础）。 */
+  owned = new Map<string, string | null>();
+  /** 连续几次升级没出金/红。 */
+  private pity = 0;
+  /** 本局做过几次选择（红卡时间窗用）。 */
+  private picksMade = 0;
+  private prototypesTaken = 0;
   rerollsLeft = CONFIG.rerollsPerRound;
 
   nextWave = 30;
@@ -453,12 +685,14 @@ export class Game {
     this.xpNeedNow = this.o.tuning.xpNeed(1);
     this.kills = 0;
     this.score = 0;
+    this.bonusScrap = 0;
     this.bosses = 0;
     this.pendingLevels = 0;
     this.offers = [];
-    this.takenUltimates.clear();
-    this.takenCards.clear();
-    for (const s of SCHOOLS) this.schoolLevel[s] = 0;
+    this.owned.clear();
+    this.pity = 0;
+    this.picksMade = 0;
+    this.prototypesTaken = 0;
     this.rerollsLeft = CONFIG.rerollsPerRound;
     this.nextWave = 30;
     this.waveIndex = 0;
@@ -481,6 +715,9 @@ export class Game {
     clearPool(this.puddles);
     clearPool(this.mines);
     clearPool(this.drones);
+    clearPool(this.turrets);
+    clearPool(this.wells);
+    clearPool(this.booms);
     clearPool(this.arcs);
     clearPool(this.tracks);
     clearPool(this.rings);
@@ -577,6 +814,26 @@ export class Game {
       chainBlast: 0,
       radial: 0,
       nova: false,
+      kit: emptyKit(),
+      heat: 0,
+      overheat: 0,
+      stopCd: 0,
+      stopT: 0,
+      rapidT: 0,
+      railCdCard: 0,
+      railCharge: 0,
+      grenadeCd: 0,
+      napalmCd: 0,
+      coneCd: 0,
+      missileCd: 0,
+      turretCd: 0,
+      wellCd: 0,
+      stormCd: 0,
+      dashMax: 1,
+      dashLeft: 1,
+      lastHurt: -99,
+      reactT: 0,
+      shockT: 0,
     };
     this.recalc(p);
     p.hp = p.maxHp;
@@ -603,16 +860,16 @@ export class Game {
 
     const blastAdd = nz(add.blastRadius);
     p.st.maxHp = p.base.maxHp * scale.hp + nz(add.maxHp);
-    p.st.dmg = p.base.dmg * scale.dmg + nz(add.dmg);
+    p.st.dmg = (p.base.dmg * scale.dmg + nz(add.dmg)) * nzp(mul.dmg);
     p.st.speed = p.base.speed * scale.speed * nzp(mul.speed) * (p.tank.signature === 'furnace' ? FURNACE_SIG.speedMul[i] : 1);
     p.st.armor = Math.min(0.15, p.base.armor + scale.armor);
     p.st.interval = (p.base.interval / scale.rof) * nzp(mul.interval);
-    p.st.bulletSpeed = p.base.bulletSpeed + nz(add.bulletSpeed);
-    p.st.range = p.base.range + nz(add.range);
+    p.st.bulletSpeed = (p.base.bulletSpeed + nz(add.bulletSpeed)) * nzp(mul.bulletSpeed);
+    p.st.range = (p.base.range + nz(add.range)) * nzp(mul.range);
     p.st.pickup = p.base.pickup + nz(add.pickup);
     p.st.crit = clamp01(p.base.crit + nz(add.critAdd));
     p.st.critMul = p.base.critMul + nz(add.critMulAdd);
-    p.st.projectiles = Math.min(6, p.base.projectiles + nz(add.projectiles));
+    p.st.projectiles = Math.min(6, Math.max(1, p.base.projectiles + nz(add.projectiles)));
     // 长矛：签名阶段 Ⅱ 起额外穿透
     p.st.pierce = Math.min(3, p.base.pierce + weapon.pierce + nz(add.pierce) + p.sig.pierceExtra);
 
@@ -624,16 +881,77 @@ export class Game {
     p.wallDmg = nzp(mul.wallDmg);
     // 蜂群：签名把散射收窄（swarmSpread 是角度），其它车用武器本身的散布
     const baseSpread = p.tank.signature === 'swarm' ? p.sig.swarmSpread : weapon.spread;
-    p.spreadDeg = Math.max(0, baseSpread + nz(add.spread) - (p.flags.has('noSpread') ? 999 : 0));
-    p.drones = Math.min(5, nz(add.drones));
-    p.mineCd = add.mines ? 2.4 * nzp(mul.mineCd) : 0;
-    p.teslaChain = Math.min(4, nz(add.teslaChain));
-    p.teslaCd = add.teslaChain ? 2.8 * nzp(mul.teslaCd) : 0;
+    p.spreadDeg = Math.max(
+      0,
+      (baseSpread + nz(add.spread)) * nzp(mul.spread) - (p.flags.has('noSpread') ? 999 : 0),
+    );
+    p.drones = Math.min(6, nz(add.drones));
+    p.mineCd = add.mines ? CONFIG.cards.mine.cd * nzp(mul.mineCd) : 0;
+    p.teslaChain = Math.min(6, nz(add.teslaChain));
+    p.teslaCd = add.teslaChain ? CONFIG.cards.tesla.cd * nzp(mul.teslaCd) : 0;
     p.shieldMax = Math.min(3, nz(add.shieldMax));
     p.regen = nz(add.regen);
     p.chainBlast = Math.min(3, nz(add.chainBlast));
     p.radial = Math.min(12, nz(add.radial));
     p.nova = nz(add.nova) > 0;
+
+    // ---- 卡牌汇总 ----
+    const K = CONFIG.cards;
+    const kit = p.kit;
+    kit.minRange = nz(add.minRange);
+    kit.dropRate = nz(add.dropRate);
+    kit.bounce = nz(add.bounce);
+    kit.chill = Math.min(0.8, nz(add.chill));
+    kit.chillT = K.chill.t;
+    kit.frostVuln = nz(add.frostVuln);
+    kit.auraSlow = Math.min(0.6, nz(add.auraSlow));
+    kit.auraR = K.aura.r * nzp(mul.auraR);
+    kit.reflect = nz(add.reflect);
+    kit.reflectPierce = nz(add.reflectPierce);
+    kit.reflectDmg = K.reflect.dmgRatio * nzp(mul.reflectDmg);
+    kit.missiles = nz(add.missiles);
+    kit.missileDmg = K.missile.dmgRatio * nzp(mul.missileDmg);
+    kit.missileCd = K.missile.cd * nzp(mul.missileCd);
+    kit.turrets = Math.min(K.turret.max, nz(add.turrets));
+    kit.turretCd = K.turret.cd;
+    kit.wells = nz(add.wells);
+    kit.wellCd = K.well.cd;
+    kit.storm = nz(add.storm);
+    kit.stormCd = K.storm.cd * nzp(mul.stormCd);
+    kit.stormDmg = K.storm.dmgRatio * nzp(mul.stormDmg);
+    kit.grenades = nz(add.grenades);
+    kit.grenadeCd = K.grenade.cd * nzp(mul.grenadeCd);
+    kit.grenadeR = K.grenade.r * nzp(mul.grenadeR);
+    kit.napalm = nz(add.napalm);
+    kit.napalmCd = K.napalm.cd * nzp(mul.napalmCd);
+    kit.napalmR = K.napalm.r * nzp(mul.napalmR);
+    kit.napalmDps = K.napalm.dps * nzp(mul.napalmDps);
+    kit.napalmLife = K.napalm.puddleLife * nzp(mul.napalmLife);
+    kit.coneCd = K.cone.cd * nzp(mul.coneCd);
+    kit.coneR = K.cone.r * nzp(mul.coneR);
+    kit.coneDmg = K.cone.dmgRatio * nzp(mul.coneDmg);
+    kit.heatMax = nz(add.heatMax);
+    kit.stops = nz(add.stops);
+    kit.stopCd = K.stop.cd * nzp(mul.stopCd);
+    kit.stopDur = K.stop.dur * nzp(mul.stopDur);
+    kit.rail = nz(add.railgun) > 0;
+    kit.railCd = K.rail.cd;
+    kit.railCharge = K.rail.charge;
+    kit.railDmg = K.rail.dmgMul;
+    kit.railPierce = K.rail.pierce;
+    kit.railSlow = K.rail.slow;
+    if (p.flags.has('railOverload')) {
+      kit.railCharge = K.rail.overloadCharge;
+      kit.railDmg = K.rail.overloadDmg;
+      kit.railPierce = K.rail.overloadPierce;
+    } else if (p.flags.has('railFast')) {
+      kit.railCd = K.rail.fastCd;
+      kit.railDmg = K.rail.fastDmg;
+      kit.railPierce = K.rail.fastPierce;
+    }
+    kit.dashMax = 1 + nz(add.dashCharges);
+    p.dashLeft = kit.dashMax;
+    kit.regenBase = nz(add.regen);
 
     const before = p.maxHp;
     p.maxHp = p.st.maxHp;
@@ -654,6 +972,10 @@ export class Game {
     this.time += step;
     this.updatePhase();
 
+    // 时停核心：全场敌人与敌弹静止（玩家自己也不能动，见 updatePlayer）
+    const stopped = this.players.some((p) => p.alive && p.stopT > 0);
+    const foeStep = stopped ? 0 : step;
+
     for (let i = 0; i < this.players.length; i += 1) {
       const p = this.players[i];
       const inp = inputs[i];
@@ -664,9 +986,12 @@ export class Game {
       }
     }
 
-    this.updateEnemies(step);
+    this.updateEnemies(foeStep);
     this.updateBullets(step, this.bullets, false);
-    this.updateBullets(step, this.ebullets, true);
+    this.updateBullets(foeStep, this.ebullets, true);
+    this.updateTurrets(step);
+    this.updateWells(step);
+    this.updateBooms(step);
     this.updatePickups(step);
     this.updateHazards(step);
     this.updateSpawning(step, inputs);
@@ -743,8 +1068,16 @@ export class Game {
     // 金手指「移动速度」在这里生效
     let speed = this.o.tuning.moveSpeed(p.st.speed) * surface;
     if (p.desperate) speed *= 1 + sig.lowHpSpeed;
+    // 轨道炮蓄力时变慢（代价写在卡面上）
+    if (p.railCharge > 0) speed *= 1 - p.kit.railSlow;
+    // 超载核心红区
+    if (p.flags.has('heatRedline') && p.kit.heatMax > 0 && p.heat / p.kit.heatMax > CONFIG.cards.heat.redAt) {
+      speed *= 1 - CONFIG.cards.heat.redSlow;
+    }
+    // 时停核心：你自己也不能移动
+    if (p.stopT > 0) speed = 0;
 
-    const mag = Math.hypot(inp.moveX, inp.moveY);
+    const mag = p.stopT > 0 ? 0 : Math.hypot(inp.moveX, inp.moveY);
     p.moving = mag > 0.05;
     p.speed01 = Math.min(1, mag);
 
@@ -797,16 +1130,29 @@ export class Game {
 
     // ---- 冲刺 ----
     p.dashCd = Math.max(0, p.dashCd - dt);
-    if (inp.dashEdge && p.dashCd <= 0 && p.dashTime <= 0) {
+    if (p.dashCd <= 0) p.dashLeft = p.dashMax;
+    if (inp.dashEdge && p.dashCd <= 0 && p.dashTime <= 0 && p.dashLeft > 0) {
       const dx = p.moving ? inp.moveX : Math.cos(p.turretAngle);
       const dy = p.moving ? inp.moveY : Math.sin(p.turretAngle);
       const m = Math.hypot(dx, dy) || 1;
       p.dashDirX = dx / m;
       p.dashDirY = dy / m;
       p.dashTime = C.dashTime;
-      p.dashCd = C.dashCd * sig.dashCdMul * nzp(p.mul.dashCd);
+      p.dashLeft -= 1;
+      if (p.dashLeft <= 0) p.dashCd = C.dashCd * sig.dashCdMul * nzp(p.mul.dashCd);
       p.invuln = Math.max(p.invuln, C.dashTime + 0.06);
       p.dashBoost = 1;
+      // 相位冲刺：留下会爆的残影
+      if (p.flags.has('phaseDash')) {
+        this.booms.push({
+          alive: true, owner: p.index, x: p.x, y: p.y,
+          r: CONFIG.cards.phase.r,
+          dmg: CONFIG.cards.phase.dmg * (p.st.dmg / Math.max(1, p.base.dmg)),
+          t: CONFIG.cards.phase.delay,
+          slow: p.flags.has('dashSlow') ? CONFIG.cards.phase.slow : 0,
+          puddle: 0, puddleLife: 0,
+        });
+      }
       if (sig.decoyTime > 0) {
         p.decoyT = sig.decoyTime;
         p.decoyX = p.x;
@@ -827,9 +1173,12 @@ export class Game {
     }
 
     // ---- 开火 ----
-    const rofBoost = 1 + (p.dashBoost > 0 ? sig.dashRoF : 0);
+    const rofBoost = 1 + (p.dashBoost > 0 ? sig.dashRoF : 0) + (p.rapidT > 0 ? CONFIG.cards.stop.boost : 0);
+    if (p.rapidT > 0) p.rapidT = Math.max(0, p.rapidT - dt);
     p.fireCd -= dt * rofBoost;
-    if (p.fireCd <= 0) {
+    p.heat = Math.max(0, p.heat - CONFIG.cards.heat.cool * dt);
+    if (p.overheat > 0) p.overheat = Math.max(0, p.overheat - dt);
+    if (p.fireCd <= 0 && p.overheat <= 0) {
       // 金手指「射速倍率」在这里生效
       p.fireCd = Math.max(0.05, this.o.tuning.fireInterval(p.st.interval));
       this.fire(p, target);
@@ -858,6 +1207,41 @@ export class Game {
       }
     }
 
+    // ---- 轨道炮（卡）----
+    if (p.kit.rail) {
+      if (p.railCharge > 0) {
+        p.railCharge -= dt;
+        if (p.railCharge <= 0) {
+          p.railCharge = 0;
+          p.railCdCard = p.kit.railCd;
+          this.railshotCard(p);
+        }
+      } else {
+        p.railCdCard = Math.max(0, p.railCdCard - dt);
+        if (p.railCdCard <= 0) {
+          p.railCharge = Math.max(0.01, p.kit.railCharge);
+          p.railWarn = 1;
+        }
+      }
+    }
+
+    // ---- 时停核心 ----
+    if (p.kit.stops > 0) {
+      if (p.stopT > 0) {
+        p.stopT = Math.max(0, p.stopT - dt);
+        if (p.stopT === 0 && p.flags.has('stopLong')) p.rapidT = CONFIG.cards.stop.boostT;
+      } else {
+        p.stopCd = Math.max(0, p.stopCd - dt);
+        if (p.stopCd <= 0) {
+          p.stopCd = p.kit.stopCd;
+          p.stopT = p.kit.stopDur;
+          this.o.fx.ultNova(p.x, p.y);
+          this.o.audio.sfx('nova');
+          this.ring(p.x, p.y, 420, '#9fd8ff', 0.5, 3);
+        }
+      }
+    }
+
     // ---- 紧急无敌（港湾 Ⅳ）----
     if (sig.emergencyCharges > 0 && p.emergencyCharges > 0 && lowRatio < sig.lowHpAt && p.emergency <= 0) {
       p.emergencyCharges -= 1;
@@ -875,7 +1259,24 @@ export class Game {
     p.recoil = Math.max(0, p.recoil - dt * 6);
 
     // ---- 回复 / 护盾 ----
-    if (p.regen > 0 && p.hp < p.maxHp) p.hp = Math.min(p.maxHp, p.hp + p.regen * dt);
+    if (p.regen > 0 && p.hp < p.maxHp) {
+      const R = CONFIG.cards.regen;
+      const outOfCombat = this.time - p.lastHurt > R.outOfCombat;
+      let rate = outOfCombat ? p.regen : p.flags.has('regenCombat') ? Math.min(p.regen, R.combat) : 0;
+      if (rate > 0 && p.flags.has('regenLow') && p.hp / p.maxHp < R.lowAt) rate *= R.lowMul;
+      if (rate > 0) {
+        const heal = Math.min(rate * dt, p.maxHp - p.hp);
+        p.hp += heal;
+        if (p.flags.has('regenShare')) {
+          for (const q of this.players) {
+            if (q === p || !q.alive) continue;
+            q.hp = Math.min(q.maxHp, q.hp + heal * 0.4);
+          }
+        }
+      }
+    }
+    if (p.reactT > 0) p.reactT = Math.max(0, p.reactT - dt);
+    if (p.shockT > 0) p.shockT = Math.max(0, p.shockT - dt);
     if (p.shieldMax > 0 && p.shield < p.shieldMax) {
       p.shieldCd -= dt;
       if (p.shieldCd <= 0) {
@@ -893,13 +1294,16 @@ export class Game {
         this.dropMine(p);
       }
     }
-    if (p.teslaCd > 0 && p.teslaChain > 0) {
+    if (p.teslaChain > 0) {
       p.teslaCd -= dt;
       if (p.teslaCd <= 0) {
-        p.teslaCd = p.teslaCd === 0 ? 2.8 : p.teslaCd;
+        p.teslaCd = CONFIG.cards.tesla.cd * nzp(p.mul.teslaCd);
         this.zap(p);
       }
     }
+
+    // ---- 卡牌副武器 ----
+    this.updateSubweapons(p, dt, target);
 
     // ---- 无敌金手指 ----
     if (this.o.cheat('god-mode') > 0) p.invuln = Math.max(p.invuln, 0.1);
@@ -942,12 +1346,16 @@ export class Game {
   // ---- 开火 ----
 
   private fire(p: Player, target: Enemy | null): void {
+    // 长管炮：贴太近打不到
+    if (p.kit.minRange > 0 && target && dist2(p.x, p.y, target.x, target.y) < p.kit.minRange ** 2) return;
+
     const base = p.turretAngle;
     const n = Math.max(1, p.st.projectiles);
     const spread = (p.spreadDeg * Math.PI) / 180;
     const pellets = Math.max(1, p.weapon.pellets);
     const crit = this.o.rng.next() < p.st.crit;
     const sig = p.sig;
+    const heavy = p.flags.has('heavyShot');
 
     let dmg = p.st.dmg * (crit ? p.st.critMul : 1);
     if (p.still >= sig.stillNeed && sig.stillDmg > 0) dmg *= 1 + sig.stillDmg;
@@ -955,6 +1363,11 @@ export class Game {
     if (sig.lostHpDmgPer > 0) {
       const lost = 1 - p.hp / p.maxHp;
       dmg *= 1 + Math.min(sig.lostHpDmgMax, Math.floor(lost * 10) * sig.lostHpDmgPer);
+    }
+
+    // 超载核心：红区增伤
+    if (p.flags.has('heatRedline') && p.kit.heatMax > 0 && p.heat / p.kit.heatMax > CONFIG.cards.heat.redAt) {
+      dmg *= CONFIG.cards.heat.redMul;
     }
 
     // 饱和打击：静止蓄满后这一发变成全向
@@ -975,9 +1388,20 @@ export class Game {
           a,
           dmg * (pellets > 1 ? 0.45 : 1),
           crit || isLock,
-          false,
+          heavy,
           false,
         );
+      }
+    }
+
+    // 超载核心：积热
+    if (p.kit.heatMax > 0) {
+      p.heat += CONFIG.cards.heat.perShot * nzp(p.mul.heatRate);
+      const H = CONFIG.cards.heat;
+      if (p.heat >= p.kit.heatMax) {
+        p.heat = p.kit.heatMax;
+        p.overheat = p.flags.has('heatCool') ? H.restFast : H.rest;
+        this.addText(p.x, p.y - p.r * 2, '过热', '#ff4d4d', 13);
       }
     }
 
@@ -1015,6 +1439,25 @@ export class Game {
     this.o.fx.ultRail(p.x, p.y, a, 1400);
     this.o.audio.sfx('rail');
     this.o.fx.blast(p.x + Math.cos(a) * 30, p.y + Math.sin(a) * 30, 26);
+  }
+
+  /** 轨道炮（卡）：穿墙、贯穿、无衰减。 */
+  private railshotCard(p: Player): void {
+    const K = CONFIG.cards.rail;
+    const a = p.turretAngle;
+    const b = this.makeBullet(p.x, p.y, a, p.st.bulletSpeed * K.speedMul, p.st.dmg * p.kit.railDmg, false);
+    b.pierce = p.kit.railPierce;
+    b.falloff = 1;
+    b.rail = true;
+    b.wallDmg = 3;
+    b.size = 7;
+    b.color = '#ff4d4d';
+    b.life = 1.6;
+    this.bullets.push(b);
+    this.o.fx.ultRail(p.x, p.y, a, 1400);
+    this.o.audio.sfx('rail');
+    this.o.fx.addShake('shakeBlast');
+    this.o.rumble(0.5, 0.3, 120);
   }
 
   /** 要塞协议：环形齐射。 */
@@ -1069,6 +1512,13 @@ export class Game {
     b.chainBlast = p.chainBlast;
     b.heavy = heavy;
     b.radial = radial;
+    b.bounce = p.kit.bounce;
+    b.homing = 0;
+    b.shell = false;
+    // 穿墙弹：直接穿过砖墙与残楼
+    b.ghost = p.flags.has('pierceWall');
+    b.blastRatio = 0.6 * nzp(p.mul.blastDmg);
+    b.puddleLife = 3;
     b.owner = p.index;
     b.color = crit ? '#ffffff' : p.tank.light;
     b.size = crit ? 5 : heavy ? 6 : 4;
@@ -1103,6 +1553,11 @@ export class Game {
       radial: false,
       doubleBlast: false,
       chainBlast: 0,
+      blastRatio: 0.6,
+      ghost: false,
+      homing: 0,
+      shell: false,
+      puddleLife: 3,
       color: crit ? '#ffffff' : '#f3ecdd',
       size: 4,
       hits: [],
@@ -1132,7 +1587,10 @@ export class Game {
     let have = 0;
     for (const d of this.drones) if (d.alive && d.owner === p.index) have += 1;
     while (have < want) {
-      const d: Drone = { alive: true, owner: p.index, phase: this.o.rng.angle(), x: p.x, y: p.y, cd: 0 };
+      const d: Drone = {
+        alive: true, owner: p.index, phase: this.o.rng.angle(), x: p.x, y: p.y, cd: 0,
+        shield: false, down: 0, missileCd: 0,
+      };
       this.drones.push(d);
       have += 1;
     }
@@ -1145,26 +1603,53 @@ export class Game {
       }
     }
 
-    const focus = p.flags.has('focusFire') && p.swarmTarget >= 0
-      ? this.enemies.find((e) => e.id === p.swarmTarget && e.alive && !e.dead) ?? null
-      : fallback;
+    // 蜂群指挥：集火玩家瞄准方向上的目标
+    const focus = p.flags.has('focusFire') ? (this.aimTarget(p) ?? fallback) : fallback;
+    const K = CONFIG.cards.drone;
 
     for (const d of this.drones) {
       if (!d.alive || d.owner !== p.index) continue;
+      d.shield = p.flags.has('droneShield');
       d.phase += dt * 1.6;
+      if (d.down > 0) {
+        d.down -= dt;
+        continue;
+      }
       const orbit = p.r * 2.6;
       const tx = p.x + Math.cos(d.phase) * orbit;
       const ty = p.y + Math.sin(d.phase) * orbit;
       d.x += (tx - d.x) * Math.min(1, dt * 7);
       d.y += (ty - d.y) * Math.min(1, dt * 7);
+
+      // 挂载导弹
+      if (p.flags.has('droneMissile')) {
+        d.missileCd -= dt;
+        if (d.missileCd <= 0) {
+          const mt = focus ?? this.nearestEnemy(d.x, d.y, p.st.range, false);
+          if (mt) {
+            d.missileCd = K.missileCd;
+            const ma = Math.atan2(mt.y - d.y, mt.x - d.x);
+            const mb = this.makeBullet(d.x, d.y, ma, 420, p.st.dmg * K.missileRatio, false);
+            mb.owner = p.index;
+            mb.life = 1.4;
+            mb.homing = 4;
+            mb.blast = K.missileR * 0.6;
+            mb.blastRatio = 0.6;
+            mb.color = '#c9a0ff';
+            mb.size = 4;
+            this.bullets.push(mb);
+          }
+        }
+      }
+
       d.cd -= dt;
       if (d.cd > 0) continue;
       const target = focus ?? this.nearestEnemy(d.x, d.y, p.st.range * 0.8, false);
       if (!target) continue;
-      d.cd = 1.4;
+      d.cd = K.cd * nzp(p.mul.droneCd);
       const a = Math.atan2(target.y - d.y, target.x - d.x);
-      const b = this.makeBullet(d.x, d.y, a, 460, p.st.dmg * 0.55, false);
-      b.life = 1.1;
+      const b = this.makeBullet(d.x, d.y, a, K.speed, p.st.dmg * K.dmgRatio * nzp(p.mul.droneDmg), false);
+      b.life = K.life;
       b.owner = p.index;
       b.color = '#c9a0ff';
       b.size = 3;
@@ -1178,18 +1663,48 @@ export class Game {
   private dropMine(p: Player): void {
     if (this.mines.filter((m) => m.alive).length >= CONFIG.caps.mines) return;
     const back = p.angle + Math.PI;
+    const MK = CONFIG.cards.mine;
     this.mines.push({
       alive: true,
       x: p.x + Math.cos(back) * p.r * 1.4,
       y: p.y + Math.sin(back) * p.r * 1.4,
-      r: 60,
-      dmg: p.st.dmg * nzp(p.mul.mineDmg) * 1.6,
-      life: 15,
+      // 磁吸雷的触发圈更大：靠得近就被拽过去
+      r: MK.trigger * (p.flags.has('mineJump') ? MK.jumpMul : 1),
+      dmg: p.st.dmg * nzp(p.mul.mineDmg) * MK.dmgRatio,
+      life: MK.life,
       owner: p.index,
+      homing: p.flags.has('mineHoming'),
+      tether: p.flags.has('mineTether'),
+      jump: p.flags.has('mineJump'),
+      vx: 0,
+      vy: 0,
     });
   }
 
   private zap(p: Player): void {
+    const K = CONFIG.cards.tesla;
+    if (p.flags.has('teslaPillar')) {
+      // 电极柱：插在脚下，持续放电
+      this.wells.push({
+        alive: true,
+        owner: p.index,
+        x: p.x,
+        y: p.y,
+        life: K.pillarLife,
+        maxLife: K.pillarLife,
+        r: K.pillarR,
+        pull: 0,
+        dmg: p.st.dmg * K.dmgRatio * nzp(p.mul.teslaDmg),
+        singularity: false,
+        inert: true,
+        pillar: K.pillarCd,
+        tick: 0,
+        slow: 0,
+      });
+      this.o.fx.ultRing(p.x, p.y, K.pillarR);
+      this.o.audio.sfx('tesla');
+      return;
+    }
     const first = this.nearestEnemy(p.x, p.y, 300, false);
     if (!first) return;
     let chain = Math.max(1, p.teslaChain);
@@ -1200,16 +1715,21 @@ export class Game {
       if (hit.length >= CONFIG.caps.arcs) break;
       hit.push(src);
       used.add(src.id);
-      const next = this.nearestExcept(src.x, src.y, 90, used);
+      const next = this.nearestExcept(src.x, src.y, K.jump, used);
       const from = src;
       this.o.fx.chain(from.x, from.y, next ? next.x : src.x, next ? next.y : src.y);
       if (next) src = next;
       chain -= 1;
       if (!next) break;
     }
-    const dmg = p.st.dmg * 0.45;
+    const dmg = p.st.dmg * K.dmgRatio * nzp(p.mul.teslaDmg);
     for (let i = 0; i < hit.length; i += 1) {
-      this.damageEnemy(hit[i]!, dmg * Math.pow(0.85, i), p, false, 'tesla');
+      const e = hit[i]!;
+      this.damageEnemy(e, dmg * Math.pow(0.85, i), p, false, 'tesla');
+      if (p.flags.has('teslaVuln')) {
+        e.vuln = Math.max(e.vuln, 0.15);
+        e.vulnT = 2;
+      }
     }
     this.o.audio.sfx('tesla');
   }
@@ -1228,20 +1748,393 @@ export class Game {
     return best;
   }
 
+  /** 玩家瞄准方向上的敌人（蜂群 / 智能炮台用）。 */
+  private aimTarget(p: Player): Enemy | null {
+    let best: Enemy | null = null;
+    let bestScore = Infinity;
+    for (const e of this.enemies) {
+      if (!e.alive || e.dead) continue;
+      const d = Math.hypot(e.x - p.x, e.y - p.y);
+      if (d > p.st.range) continue;
+      const a = Math.atan2(e.y - p.y, e.x - p.x);
+      const off = Math.abs(shortAngle(a, p.turretAngle));
+      if (off > 0.5) continue;
+      const score = off * 300 + d;
+      if (score < bestScore) {
+        bestScore = score;
+        best = e;
+      }
+    }
+    return best;
+  }
+
+  // ===================================================================
+  // 卡牌副武器
+  // ===================================================================
+
+  /** 锥形攻击：命中扇区内所有敌人。 */
+  private coneAttack(
+    p: Player,
+    r: number,
+    arc: number,
+    ratio: number,
+    chill: number,
+    vuln: number,
+    color: string,
+  ): void {
+    const list = this.enemiesInRadius(p.x, p.y, r, this.q2);
+    const aim = p.turretAngle;
+    for (const e of list) {
+      const a = Math.atan2(e.y - p.y, e.x - p.x);
+      if (Math.abs(shortAngle(a, aim)) > arc) continue;
+      this.damageEnemy(e, p.st.dmg * ratio, p, false, 'cone');
+      if (chill > 0) {
+        e.slow = Math.max(e.slow, chill);
+        e.slowT = CONFIG.cards.cone.chillT;
+      }
+      if (vuln > 0) {
+        e.vuln = Math.max(e.vuln, vuln);
+        e.vulnT = 2;
+      }
+    }
+    for (let i = -2; i <= 2; i += 1) {
+      const a = aim + (i / 2) * arc * 0.8;
+      this.o.fx.trail(p.x + Math.cos(a) * r, p.y + Math.sin(a) * r, p.x, p.y, color);
+    }
+    this.o.audio.sfx('shoot', 0, 0.5);
+  }
+
+  /** 抛射体（手雷 / 燃油弹）：飞到落点后爆炸，落地可留火池。 */
+  private throwShell(
+    p: Player,
+    angle: number,
+    range: number,
+    r: number,
+    dmg: number,
+    ghost: boolean,
+    puddle: number,
+    puddleLife: number,
+    shellLife: number,
+    color: string,
+  ): void {
+    const speedNow = range / Math.max(0.05, shellLife);
+    const b = this.makeBullet(
+      p.x + Math.cos(angle) * p.r * 1.2,
+      p.y + Math.sin(angle) * p.r * 1.2,
+      angle,
+      speedNow,
+      dmg,
+      false,
+    );
+    b.life = shellLife;
+    b.blast = r;
+    b.blastRatio = 1;
+    b.puddle = puddle;
+    b.puddleLife = puddleLife;
+    b.shell = true;
+    b.ghost = ghost;
+    b.owner = p.index;
+    b.color = color;
+    b.size = 5;
+    b.wallDmg = 2;
+    this.bullets.push(b);
+  }
+
+  private updateSubweapons(p: Player, dt: number, target: Enemy | null): void {
+    const k = p.kit;
+    const K = CONFIG.cards;
+    const aim = target ? Math.atan2(target.y - p.y, target.x - p.x) : p.turretAngle;
+
+    // ---- 破片手雷 ----
+    if (k.grenades > 0) {
+      p.grenadeCd -= dt;
+      if (p.grenadeCd <= 0) {
+        p.grenadeCd = k.grenadeCd;
+        const n = Math.max(1, k.grenades);
+        for (let i = 0; i < n; i += 1) {
+          const off = n === 1 ? 0 : (i - (n - 1) / 2) * 0.16;
+          this.throwShell(
+            p, aim + off, K.grenade.range, k.grenadeR, K.grenade.dmg,
+            p.flags.has('grenadeAir'), 0, 0, K.grenade.shellLife, '#ffb066',
+          );
+        }
+        this.o.audio.sfx('shoot', 0, 0.6);
+      }
+    }
+
+    // ---- 燃油弹 ----
+    if (k.napalm > 0) {
+      p.napalmCd -= dt;
+      if (p.napalmCd <= 0) {
+        p.napalmCd = k.napalmCd;
+        if (p.flags.has('napalmJet')) {
+          this.coneAttack(p, K.napalm.coneR, K.napalm.coneArc, K.napalm.coneRatio, 0, 0, '#ff6b35');
+          this.addPuddle(
+            p.x + Math.cos(aim) * K.napalm.coneR * 0.5,
+            p.y + Math.sin(aim) * K.napalm.coneR * 0.5,
+            k.napalmR, k.napalmDps, k.napalmLife,
+          );
+        } else {
+          this.throwShell(
+            p, aim, K.napalm.range, k.napalmR, 0, false,
+            k.napalmDps, k.napalmLife, K.napalm.shellLife, '#ff6b35',
+          );
+        }
+        this.o.audio.sfx('shootHeavy', 0, 0.5);
+      }
+    }
+
+    // ---- 冷媒喷口 ----
+    if (nz(p.add.cone) > 0) {
+      p.coneCd -= dt;
+      if (p.coneCd <= 0) {
+        p.coneCd = k.coneCd;
+        this.coneAttack(p, k.coneR, K.cone.arc, k.coneDmg, k.chill, k.frostVuln, '#9fd8ff');
+      }
+    }
+
+    // ---- 导弹阵列 ----
+    if (k.missiles > 0) {
+      p.missileCd -= dt;
+      if (p.missileCd <= 0) {
+        p.missileCd = k.missileCd;
+        const n = Math.max(1, k.missiles);
+        const baseAngle = target ? Math.atan2(target.y - p.y, target.x - p.x) : p.turretAngle;
+        for (let i = 0; i < n; i += 1) {
+          const a = baseAngle + (i - (n - 1) / 2) * 0.35;
+          const b = this.makeBullet(p.x, p.y, a, K.missile.speed, p.st.dmg * k.missileDmg, false);
+          b.owner = p.index;
+          b.homing = K.missile.turn;
+          b.life = 2.4;
+          b.color = '#ff9f6b';
+          b.size = 3;
+          b.blast = p.flags.has('missileBlast') ? K.missile.blast : 0;
+          b.blastRatio = 0.6;
+          this.bullets.push(b);
+        }
+        this.o.audio.sfx('shoot', 0, 0.5);
+      }
+    }
+
+    // ---- 哨戒炮台 ----
+    if (k.turrets > 0) {
+      p.turretCd -= dt;
+      if (p.turretCd <= 0) {
+        const alive = this.turrets.filter((t) => t.alive && t.owner === p.index);
+        if (alive.length >= k.turrets) {
+          const oldest = alive[0];
+          if (oldest) oldest.alive = false;
+        }
+        const heavy = p.flags.has('turretHeavy');
+        this.turrets.push({
+          alive: true,
+          owner: p.index,
+          x: p.x + Math.cos(p.angle + Math.PI) * 26,
+          y: p.y + Math.sin(p.angle + Math.PI) * 26,
+          angle: p.turretAngle,
+          life: K.turret.life,
+          maxLife: K.turret.life,
+          cd: 0,
+          dmg: p.st.dmg * K.turret.dmgRatio * (heavy ? K.turret.heavyMul : 1),
+          r: K.turret.r,
+          range: K.turret.range,
+          heavy,
+          smart: p.flags.has('turretSmart'),
+        });
+        p.turretCd = 4;
+        this.o.audio.sfx('ui', 0, 0.6);
+      }
+    }
+
+    // ---- 引力井 ----
+    if (k.wells > 0) {
+      p.wellCd -= dt;
+      if (p.wellCd <= 0) {
+        p.wellCd = k.wellCd;
+        const tx = target ? target.x : p.x + Math.cos(p.turretAngle) * 200;
+        const ty = target ? target.y : p.y + Math.sin(p.turretAngle) * 200;
+        const sing = p.flags.has('wellSingularity');
+        this.wells.push({
+          alive: true,
+          owner: p.index,
+          x: tx,
+          y: ty,
+          life: sing ? K.well.singularityDur : K.well.dur,
+          maxLife: sing ? K.well.singularityDur : K.well.dur,
+          r: K.well.r,
+          pull: K.well.pull,
+          dmg: p.st.dmg * K.well.dmgRatio,
+          singularity: sing,
+          inert: p.flags.has('wellInert'),
+          pillar: 0,
+          tick: 0,
+          slow: 0,
+        });
+        this.o.fx.ultRing(tx, ty, K.well.r);
+        this.o.audio.sfx('tesla', 0, 0.5);
+      }
+    }
+
+    // ---- 磁暴场 ----
+    if (k.storm > 0) {
+      p.stormCd -= dt;
+      if (p.stormCd <= 0) {
+        p.stormCd = k.stormCd;
+        const list = this.enemiesInRadius(p.x, p.y, K.storm.r, this.q2);
+        if (list.length > 0) {
+          const e = list[this.o.rng.int(0, list.length - 1)]!;
+          for (const o of list) {
+            if (dist2(o.x, o.y, e.x, e.y) > K.storm.arcR ** 2) continue;
+            this.damageEnemy(o, p.st.dmg * k.stormDmg, p, false, 'storm');
+          }
+          this.o.fx.chain(e.x, e.y - 160, e.x, e.y);
+          this.o.fx.blast(e.x, e.y, K.storm.arcR);
+          if (p.flags.has('stormArc')) {
+            this.addPuddle(e.x, e.y, K.storm.arcR * 0.7, k.stormDmg * p.st.dmg / 0.35, K.storm.arcLife);
+          }
+          this.o.audio.sfx('tesla', 0, 0.6);
+        }
+      }
+    }
+  }
+
+  private updateTurrets(dt: number): void {
+    for (const t of this.turrets) {
+      if (!t.alive) continue;
+      t.life -= dt;
+      if (t.life <= 0) {
+        t.alive = false;
+        continue;
+      }
+      t.cd -= dt;
+      const target = t.smart
+        ? this.nearestEnemy(this.players[t.owner]?.x ?? t.x, this.players[t.owner]?.y ?? t.y, t.range, false)
+        : this.nearestEnemy(t.x, t.y, t.range, false);
+      if (!target) continue;
+      t.angle = Math.atan2(target.y - t.y, target.x - t.x);
+      if (t.cd > 0) continue;
+      t.cd = CONFIG.cards.turret.cd * (t.heavy ? CONFIG.cards.turret.heavyCd : 1);
+      const b = this.makeBullet(t.x, t.y, t.angle, 560, t.dmg, false);
+      b.owner = t.owner;
+      b.life = t.range / 560 + 0.4;
+      b.color = '#c9a0ff';
+      b.size = 3;
+      this.bullets.push(b);
+      this.o.fx.muzzle(t.x, t.y, t.angle, '#c9a0ff');
+    }
+    compact(this.turrets);
+  }
+
+  private updateWells(dt: number): void {
+    for (const w of this.wells) {
+      if (!w.alive) continue;
+      w.life -= dt;
+      if (w.pillar > 0) {
+        // 电极柱：周期性放电
+        w.tick -= dt;
+        if (w.tick <= 0) {
+          w.tick = w.pillar;
+          const hit = this.enemiesInRadius(w.x, w.y, w.r, this.q2);
+          for (const e of hit) {
+            this.damageEnemy(e, w.dmg, this.players[w.owner], false, 'pillar');
+            this.o.fx.chain(w.x, w.y, e.x, e.y);
+          }
+          this.o.audio.sfx('tesla', 0, 0.5);
+        }
+      } else if (!w.inert) {
+        const list = this.enemiesInRadius(w.x, w.y, w.r, this.q2);
+        for (const e of list) {
+          if (e.boss) continue;
+          const d = Math.hypot(w.x - e.x, w.y - e.y) || 1;
+          const pull = Math.min(w.pull, d * 6) * dt;
+          e.x += ((w.x - e.x) / d) * pull;
+          e.y += ((w.y - e.y) / d) * pull;
+        }
+      } else {
+        const list = this.enemiesInRadius(w.x, w.y, w.r, this.q2);
+        for (const e of list) {
+          e.slow = Math.max(e.slow, CONFIG.cards.well.inertSlow);
+          e.slowT = 0.4;
+          e.vuln = Math.max(e.vuln, CONFIG.cards.well.inertVuln);
+          e.vulnT = 0.4;
+        }
+      }
+      if (w.life <= 0) {
+        w.alive = false;
+        if (w.singularity) {
+          const hit = this.enemiesInRadius(w.x, w.y, CONFIG.cards.well.singularityR, this.q2);
+          for (const e of hit) this.damageEnemy(e, w.dmg, this.players[w.owner], false, 'well');
+          this.o.fx.blast(w.x, w.y, CONFIG.cards.well.singularityR);
+          this.o.fx.addShake('shakeBlast');
+        }
+      }
+    }
+    compact(this.wells);
+  }
+
+  private updateBooms(dt: number): void {
+    for (const b of this.booms) {
+      if (!b.alive) continue;
+      b.t -= dt;
+      if (b.t > 0) continue;
+      b.alive = false;
+      const list = this.enemiesInRadius(b.x, b.y, b.r, this.q2);
+      for (const e of list) {
+        this.damageEnemy(e, b.dmg, this.players[b.owner], false, 'boom');
+        if (b.slow > 0) {
+          e.slow = Math.max(e.slow, b.slow);
+          e.slowT = 1.5;
+        }
+      }
+      if (b.puddle > 0) this.addPuddle(b.x, b.y, b.r * 0.8, b.puddle, b.puddleLife);
+      this.o.fx.blast(b.x, b.y, b.r);
+      this.o.audio.sfx('blast', 0, 0.7);
+    }
+    compact(this.booms);
+  }
+
   // ===================================================================
   // 子弹
   // ===================================================================
 
   private updateBullets(dt: number, pool: Bullet[], fromEnemy: boolean): void {
+    if (dt <= 0) return;
     for (const b of pool) {
       if (!b.alive) continue;
       b.px = b.x;
       b.py = b.y;
-      b.x += b.vx * dt;
-      b.y += b.vy * dt;
+
+      // 追踪
+      if (b.homing > 0) {
+        const t = this.nearestEnemy(b.x, b.y, 520, false);
+        if (t) {
+          const want = Math.atan2(t.y - b.y, t.x - b.x);
+          const cur = Math.atan2(b.vy, b.vx);
+          const na = cur + shortAngle(want, cur) * Math.min(1, b.homing * dt);
+          const sp = Math.hypot(b.vx, b.vy);
+          b.vx = Math.cos(na) * sp;
+          b.vy = Math.sin(na) * sp;
+        }
+      }
+
+      // 时间膨胀：光环里的敌弹变慢
+      let bdt = dt;
+      if (fromEnemy) {
+        for (const p of this.players) {
+          if (!p.alive || p.kit.auraSlow <= 0) continue;
+          if (dist2(p.x, p.y, b.x, b.y) <= p.kit.auraR ** 2) {
+            bdt = dt * (1 - p.kit.auraSlow);
+            break;
+          }
+        }
+      }
+
+      b.x += b.vx * bdt;
+      b.y += b.vy * bdt;
       b.life -= dt;
       if (b.life <= 0) {
         b.alive = false;
+        if (b.shell) this.detonateShell(b);
         continue;
       }
 
@@ -1253,7 +2146,7 @@ export class Game {
       // 撞墙
       const tx = Math.floor(b.x / T);
       const ty = Math.floor(b.y / T);
-      if (!this.world.inBounds(tx, ty) || (this.world.blocksBullet(tx, ty) && !b.rail)) {
+      if (!this.world.inBounds(tx, ty) || (this.world.blocksBullet(tx, ty) && !b.rail && !b.ghost)) {
         const wallDmg = b.dmg * b.wallDmg;
         const res = this.world.damage(tx, ty, wallDmg);
         if (res === 'none' && this.world.blocksBullet(tx, ty)) {
@@ -1266,6 +2159,17 @@ export class Game {
         } else {
           this.o.fx.hit(b.x, b.y, '#9a9aa8', false);
         }
+        // 跳弹：反弹一次继续飞
+        if (b.bounce > 0 && this.world.inBounds(tx, ty)) {
+          b.bounce -= 1;
+          const cx = tx * T + T / 2;
+          const cy = ty * T + T / 2;
+          if (Math.abs(b.x - cx) > Math.abs(b.y - cy)) b.vx = -b.vx;
+          else b.vy = -b.vy;
+          b.life = Math.max(b.life, 0.4);
+          this.o.fx.pierce(b.x, b.y, Math.atan2(b.vy, b.vx));
+          continue;
+        }
         if (b.blast > 0) this.explode(b, b.x, b.y);
         b.alive = false;
         continue;
@@ -1277,9 +2181,29 @@ export class Game {
           this.hurtPlayer(hit, b.dmg, b.x, b.y, true);
           if (b.blast > 0) this.explode(b, b.x, b.y);
           b.alive = false;
+          continue;
+        }
+        // 蜂群护盾：无人机挡子弹
+        let blocked = false;
+        for (const d of this.drones) {
+          if (!d.alive || !d.shield || d.down > 0) continue;
+          if (dist2(d.x, d.y, b.x, b.y) <= (b.size + 10) ** 2) {
+            d.down = CONFIG.cards.drone.shieldRegen;
+            this.o.fx.shieldBreak(d.x, d.y, 14);
+            this.o.audio.sfx('shieldHit');
+            blocked = true;
+            break;
+          }
+        }
+        if (blocked) {
+          b.alive = false;
+          continue;
         }
         continue;
       }
+
+      // 抛射体不撞敌人：飞到落点再炸
+      if (b.shell) continue;
 
       // 打玩家子弹？没有——敌方弹走 ebullets
       this.grid.query(b.x, b.y, b.size + 30, this.q);
@@ -1293,6 +2217,9 @@ export class Game {
         const owner = this.players[b.owner];
         const front = e.boss ? false : this.isFrontal(e, b);
         let dmg = front ? b.dmg * (1 - (e.def.frontalReduction ?? 0)) : b.dmg;
+
+        // 破甲：正面减伤无效
+        if (owner && owner.flags.has('pierceArmor') && front) dmg = b.dmg;
 
         // 长矛·贯穿校射：每多穿透一个目标，这一发伤害累加
         if (owner && owner.tank.signature === 'lance' && owner.sig.pierceBonus > 0) {
@@ -1316,19 +2243,60 @@ export class Game {
           }
         }
 
+        // 冰霜 / 冷媒：减速 + 脆化
+        if (owner && owner.kit.chill > 0) {
+          e.slow = Math.max(e.slow, owner.kit.chill);
+          e.slowT = owner.kit.chillT;
+          if (owner.flags.has('freezeRoot') && !e.boss) {
+            e.rootT = Math.max(e.rootT, CONFIG.cards.chill.root);
+          }
+        }
+        if (owner && owner.kit.frostVuln > 0 && (e.slow > 0 || e.rootT > 0)) {
+          e.vuln = Math.max(e.vuln, owner.kit.frostVuln);
+          e.vulnT = 2;
+        }
+
         this.damageEnemy(e, dmg, owner, b.crit, 'shot');
+
+        // 重锤弹：击退
+        if (b.heavy) {
+          const ka = Math.atan2(b.vy, b.vx);
+          e.x += Math.cos(ka) * 8;
+          e.y += Math.sin(ka) * 8;
+        }
 
         // 终焉·要塞协议 Ⅲ：齐射命中后标记，后续受伤 +8%
         if (owner && owner.sig.markBonus > 0 && b.radial) e.mark = Math.max(e.mark, 2.5);
 
         this.o.fx.hit(b.x, b.y, b.crit ? '#ffe6b0' : e.def.color, b.crit);
         if (b.chain > 0) this.doChain(b, e, dmg);
-        if (b.puddle > 0 && this.o.rng.chance(0.22)) this.addPuddle(e.x, e.y, 22, b.puddle, 3);
+        if (b.puddle > 0 && this.o.rng.chance(0.22)) this.addPuddle(e.x, e.y, 22, b.puddle, b.puddleLife);
         if (b.blast > 0) this.explode(b, b.x, b.y);
 
+        // 跳弹：命中后反弹
+        if (b.bounce > 0) {
+          b.bounce -= 1;
+          const vx0 = b.vx;
+          b.vx = -b.vy;
+          b.vy = -vx0;
+          b.life = Math.max(b.life, 0.4);
+          if (owner && owner.flags.has('bounceFrag')) {
+            for (let k = 0; k < 2; k += 1) {
+              const fa = Math.atan2(b.vy, b.vx) + (k === 0 ? 0.5 : -0.5);
+              const frag = this.makeBullet(b.x, b.y, fa, Math.hypot(b.vx, b.vy), b.dmg * 0.5, false);
+              frag.owner = b.owner;
+              frag.color = b.color;
+              frag.size = 3;
+              frag.life = 0.5;
+              this.bullets.push(frag);
+            }
+          }
+          break;
+        }
+
         if (b.rail) {
-          // 轨道炮：穿墙、4 个目标、无衰减
-          if (b.hits.length >= 4) { b.alive = false; consumed = true; }
+          // 轨道炮：穿墙、贯穿、无衰减
+          if (b.hits.length >= b.pierce) { b.alive = false; consumed = true; }
           break;
         }
         if (b.pierce > 0) {
@@ -1348,6 +2316,15 @@ export class Game {
 
     // 回收
     compact(pool);
+  }
+
+  /** 抛射体落地：先铺火池，再爆炸。 */
+  private detonateShell(b: Bullet): void {
+    if (b.puddle > 0) {
+      this.addPuddle(b.x, b.y, b.blast * 0.85, b.puddle, b.puddleLife);
+      this.o.fx.ultChain(b.x, b.y - 6, b.x, b.y, b.blast);
+    }
+    if (b.blast > 0) this.explode(b, b.x, b.y);
   }
 
   private isFrontal(e: Enemy, b: Bullet): boolean {
@@ -1383,7 +2360,7 @@ export class Game {
   private explode(b: Bullet, x: number, y: number): void {
     const r = Math.min(90, b.blast);
     const list = this.enemiesInRadius(x, y, r, this.q2);
-    const dmg = b.dmg * 0.6;
+    const dmg = b.dmg * b.blastRatio;
     const killed: Enemy[] = [];
     const by = this.players[b.owner] ?? this.players[0];
     for (const e of list) {
@@ -1484,6 +2461,10 @@ export class Game {
       slow: 0,
       slowT: 0,
       mark: 0,
+      vuln: 0,
+      vulnT: 0,
+      rootT: 0,
+      burnT: 0,
       elite: affix !== null,
       affix,
       affix2,
@@ -1565,6 +2546,10 @@ export class Game {
       slow: 0,
       slowT: 0,
       mark: 0,
+      vuln: 0,
+      vulnT: 0,
+      rootT: 0,
+      burnT: 0,
       elite: true,
       affix: null,
       affix2: null,
@@ -1586,6 +2571,7 @@ export class Game {
   }
 
   private updateEnemies(dt: number): void {
+    if (dt <= 0) return;
     this.grid.clear();
     for (const e of this.enemies) {
       if (!e.alive || e.dead) continue;
@@ -1598,6 +2584,15 @@ export class Game {
       e.flash = Math.max(0, e.flash - dt);
       e.slowT = Math.max(0, e.slowT - dt);
       if (e.slowT <= 0) e.slow = 0;
+      e.vulnT = Math.max(0, e.vulnT - dt);
+      if (e.vulnT <= 0) e.vuln = 0;
+      e.rootT = Math.max(0, e.rootT - dt);
+      if (e.burnT > 0) {
+        e.burnT -= dt;
+        if (Math.hypot(e.vx, e.vy) > 10 && this.o.rng.chance(0.25)) {
+          this.addPuddle(e.x, e.y, 20, 6, 1.4);
+        }
+      }
       e.noHitT += dt;
       if (e.shieldMax > 0 && e.noHitT > 5 && e.shield < e.shieldMax) e.shield = Math.min(e.shieldMax, e.shield + e.shieldMax * dt * 0.4);
 
@@ -1623,6 +2618,16 @@ export class Game {
       const commander = this.commanderBonusNear(e);
       if (commander > 0) auraMul *= 1 + commander;
       if (e.mark > 0) e.mark = Math.max(0, e.mark - dt);
+
+      // 时间膨胀光环：靠近的敌人变慢
+      for (const p of this.players) {
+        if (!p.alive || p.kit.auraSlow <= 0) continue;
+        if (dist2(p.x, p.y, e.x, e.y) <= p.kit.auraR ** 2) {
+          e.slow = Math.max(e.slow, p.kit.auraSlow);
+          e.slowT = Math.max(e.slowT, 0.2);
+          break;
+        }
+      }
 
       // ---- 行为 ----
       if (e.boss) {
@@ -1669,6 +2674,7 @@ export class Game {
           this.mines.push({
             alive: true, x: e.x, y: e.y, r: e.def.radius, dmg: e.def.dmg * e.dmgMul,
             life: 20, owner: -1 - e.id,
+            homing: false, tether: false, jump: false, vx: 0, vy: 0,
           });
         }
       }
@@ -1766,6 +2772,11 @@ export class Game {
   }
 
   private seek(e: Enemy, dt: number, ux: number, uy: number, throttle: number): void {
+    if (e.rootT > 0) {
+      e.vx *= 0.85;
+      e.vy *= 0.85;
+      return;
+    }
     const speed = e.speed * (1 - e.slow) * throttle;
     const targetVx = ux * speed;
     const targetVy = uy * speed;
@@ -1884,6 +2895,7 @@ export class Game {
     if (!e.alive || e.dead) return;
     let d = dmg;
     if (e.mark > 0) d *= 1.08;
+    if (e.vuln > 0) d *= 1 + e.vuln;
     if (e.shield > 0) {
       const absorbed = Math.min(e.shield, d);
       e.shield -= absorbed;
@@ -1968,6 +2980,11 @@ export class Game {
       });
       const gained = e.def.score * (e.elite ? 5 : 1);
       this.score += gained;
+
+      // 磁力拾荒：掉落率
+      if (by && by.kit.dropRate > 0 && this.o.rng.chance(by.kit.dropRate * CONFIG.cards.drops.base)) {
+        this.dropSupply(e.x, e.y, this.o.rng.chance(0.5) ? 'repair' : 'bomb');
+      }
     }
     void crit;
   }
@@ -1975,6 +2992,7 @@ export class Game {
   hurtPlayer(p: Player, dmg: number, x: number, y: number, charged: boolean): void {
     if (!p.alive || p.invuln > 0) return;
     if (this.o.cheat('god-mode') > 0) return;
+    p.lastHurt = this.time;
 
     let d = dmg;
     const th = this.threatInfo();
@@ -1982,11 +3000,15 @@ export class Game {
     d -= p.armorFlat;
     d *= 1 - Math.min(0.15, p.st.armor);
     if (p.desperate) d *= 1 - (p.sig.lowHpReduction ?? 0);
+    // 反应装甲：受击后 0.6s 内的下一击减半
+    if (p.reactT > 0) d *= CONFIG.cards.react.mul;
+    if (p.flags.has('reactArmor')) p.reactT = CONFIG.cards.react.t;
     if (p.shield > 0) {
       p.shield -= 1;
       p.shieldCd = p.shieldRecharge;
       this.o.fx.shieldBreak(p.x, p.y, p.r * 1.5);
       this.o.audio.sfx('shieldBreak');
+      this.reflectBurst(p);
       if (p.nova && p.shield === 0) {
         this.o.fx.ultNova(p.x, p.y);
         this.o.audio.sfx('nova');
@@ -2010,6 +3032,7 @@ export class Game {
     this.o.fx.addShake('shakeHit');
     this.o.audio.sfx('hurt');
     this.o.rumble(0.5, 0.3, 100);
+    this.reflectBurst(p);
     void th;
     void x;
     void y;
@@ -2018,6 +3041,26 @@ export class Game {
       p.hp = 0;
       this.downPlayer(p, false);
     }
+  }
+
+  /** 反射装甲：受伤时向四周弹片。 */
+  private reflectBurst(p: Player): void {
+    const n = p.kit.reflect;
+    if (n <= 0) return;
+    const arc = p.flags.has('reflectArc');
+    for (let i = 0; i < n; i += 1) {
+      const a = (Math.PI * 2 * i) / n;
+      const b = this.makeBullet(p.x, p.y, a, CONFIG.cards.reflect.speed, p.st.dmg * p.kit.reflectDmg, false);
+      b.owner = p.index;
+      b.life = CONFIG.cards.reflect.life;
+      b.pierce = p.kit.reflectPierce;
+      b.color = arc ? '#9fd8ff' : '#f3ecdd';
+      b.size = 3;
+      if (arc) b.chain = 1;
+      this.bullets.push(b);
+    }
+    this.o.fx.nova(p.x, p.y, p.r * 2.5);
+    this.o.audio.sfx('shootHeavy', 0, 0.5);
   }
 
   private downPlayer(p: Player, revived: boolean): void {
@@ -2120,6 +3163,18 @@ export class Game {
           nearest.bombs = Math.min(CONFIG.combat.bombsMax, nearest.bombs + 1);
           this.o.audio.sfx('ui');
         }
+        // 涡流吸附：拾取时震开周围敌人
+        if (nearest.flags.has('pickupShock') && nearest.shockT <= 0) {
+          nearest.shockT = 0.4;
+          const list = this.enemiesInRadius(k.x, k.y, CONFIG.cards.pickupShock.r, this.q2);
+          for (const e of list) this.damageEnemy(e, CONFIG.cards.pickupShock.dmg, nearest, false, 'shock');
+          this.o.fx.nova(k.x, k.y, CONFIG.cards.pickupShock.r);
+        }
+        // 废料回收：掉落物变废铁
+        if (nearest.flags.has('scrapDrop') && this.o.rng.chance(CONFIG.cards.scrapDrop.chance)) {
+          this.bonusScrap += CONFIG.cards.scrapDrop.scrap;
+          this.addText(k.x, k.y - 8, '+废铁', '#f2b13c', 11);
+        }
       }
     }
     compact(this.pickups);
@@ -2134,7 +3189,11 @@ export class Game {
       if (pd.tick > 0) continue;
       pd.tick = 0.35;
       const list = this.enemiesInRadius(pd.x, pd.y, pd.r, this.q2);
-      for (const e of list) this.damageEnemy(e, pd.dps * 0.35, undefined, false, 'fire');
+      for (const e of list) {
+        this.damageEnemy(e, pd.dps * 0.35, undefined, false, 'fire');
+        // 凝固配方：着火的敌人移动时拖火痕
+        if (this.players.some((q) => q.flags.has('napalmTrail'))) e.burnT = 2;
+      }
       this.world.burnAt(pd.x, pd.y, pd.r);
     }
     compact(this.puddles);
@@ -2143,12 +3202,46 @@ export class Game {
       if (!m.alive) continue;
       m.life -= dt;
       if (m.life <= 0) { m.alive = false; continue; }
+      const MK = CONFIG.cards.mine;
+
+      // 磁吸：把附近的敌人拽过来
+      if (m.homing) {
+        const near = this.nearestEnemy(m.x, m.y, MK.trigger, false);
+        if (near && !near.boss) {
+          const d = Math.hypot(near.x - m.x, near.y - m.y) || 1;
+          near.x += ((m.x - near.x) / d) * Math.min(d, 240 * dt);
+          near.y += ((m.y - near.y) / d) * Math.min(d, 240 * dt);
+        }
+      }
+      // 绊索：范围内的敌人被拖向雷并减速
+      if (m.tether) {
+        const near = this.enemiesInRadius(m.x, m.y, MK.tetherRange, this.q2);
+        for (const e of near) {
+          if (e.boss) continue;
+          e.slow = Math.max(e.slow, MK.tetherSlow);
+          e.slowT = 0.3;
+          const d = Math.hypot(e.x - m.x, e.y - m.y) || 1;
+          e.x += ((m.x - e.x) / d) * Math.min(d, 60 * dt);
+          e.y += ((m.y - e.y) / d) * Math.min(d, 60 * dt);
+        }
+      }
+
       const list = this.enemiesInRadius(m.x, m.y, m.r, this.q2);
       if (list.length === 0) continue;
+      const by = this.players[m.owner] ?? this.players[0];
+      if (m.jump) {
+        // 跳雷：弹起后再空爆
+        m.alive = false;
+        this.booms.push({
+          alive: true, owner: m.owner, x: m.x, y: m.y,
+          r: m.r, dmg: m.dmg, t: 0.28, slow: 0, puddle: 0, puddleLife: 0,
+        });
+        this.o.fx.nova(m.x, m.y, m.r);
+        continue;
+      }
       m.alive = false;
-      const dmg = m.dmg;
-      for (const e of list) this.damageEnemy(e, dmg, this.players[m.owner] ?? this.players[0], false, 'mine');
-      this.world.splash(m.x, m.y, m.r, dmg * 0.6, this.scratch);
+      for (const e of list) this.damageEnemy(e, m.dmg, by, false, 'mine');
+      this.world.splash(m.x, m.y, m.r, m.dmg * 0.6, this.scratch);
       this.o.fx.blast(m.x, m.y, m.r);
       this.o.audio.sfx('mine');
     }
@@ -2490,6 +3583,7 @@ export class Game {
   }
 
   private openLevelup(): void {
+    if (this.picksMade > 0) this.pity += 1;
     this.offers = this.rollOffers();
     this.pendingLevels -= 1;
     this.o.fx.levelup(this.players[0]?.x ?? 0, this.players[0]?.y ?? 0);
@@ -2497,95 +3591,144 @@ export class Game {
     this.emit({ type: 'levelup', offers: this.offers, level: this.level });
   }
 
-  /** 候选池 = 未满级卡 + 已达成的终极（未拿过）。 */
-  private candidates(): CardDef[] {
+  /** 可以拿的新装置（没拥有过的）。 */
+  private newPool(): CardDef[] {
+    const canProto = this.time >= CARD_RULES.prototypeAfter && this.prototypesTaken < CARD_RULES.maxPrototypes;
+    return CARDS.filter((c) => {
+      if (this.owned.has(c.id)) return false;
+      if (c.rarity === 'prototype' && !canProto) return false;
+      return true;
+    });
+  }
+
+  /** 可以改装的卡（拥有但还没选方向）。 */
+  private upgradePool(): CardDef[] {
     const out: CardDef[] = [];
-    for (const c of CARDS) {
-      if (c.level === 5) {
-        if (this.schoolLevel[c.school] >= 4 && !this.takenUltimates.has(c.id)) out.push(c);
-        continue;
-      }
-      if (this.takenCards.has(c.id)) continue;
-      if (this.schoolLevel[c.school] < c.level - 1) continue;
-      out.push(c);
+    for (const [id, branchId] of this.owned) {
+      if (branchId) continue;
+      const card = CARD_BY_ID.get(id);
+      if (card && card.branches.length > 0) out.push(card);
     }
     return out;
   }
 
-  private rollOffers(): CardDef[] {
-    const pool = this.candidates();
-    if (pool.length === 0) return [SUPPLY_CARD];
+  private makeNewOffer(card: CardDef): CardOffer {
+    return { card, branches: [], isUpgrade: false, ownedBranch: null };
+  }
 
-    // 终极卡必出：某流派刚好满 4 级时，下一次升级必定给那张终极
-    const forced = pool.filter((c) => c.level === 5);
+  private makeUpgradeOffer(card: CardDef): CardOffer {
+    const pool = card.branches.slice();
+    // 3 个方向里随机展示 2 个（白卡本来就只有 2 个）
+    const shown: CardBranch[] = [];
+    while (shown.length < CARD_RULES.shownBranches && pool.length > 0) {
+      const i = this.o.rng.int(0, pool.length - 1);
+      shown.push(pool.splice(i, 1)[0]!);
+    }
+    return { card, branches: shown, isUpgrade: true, ownedBranch: this.owned.get(card.id) ?? null };
+  }
 
-    const picks: CardDef[] = [];
-    const used = new Set<string>();
-    const schools = new Set<School>();
+  /** 抽 3 张：至少 1 张新装置 + 至少 1 张改装，其余按稀有度权重。 */
+  private rollOffers(): CardOffer[] {
+    const news = this.newPool();
+    const ups = this.upgradePool();
+    const supply: CardOffer = { card: SUPPLY_CARD, branches: [], isUpgrade: false, ownedBranch: null };
+    if (news.length === 0 && ups.length === 0) return [supply];
 
-    const weight = (c: CardDef): number => {
-      const base = 1;
-      const deep = this.schoolLevel[c.school] > 0 ? 1.35 : 1;
-      return base * deep * this.o.tuning.offerQuality(1);
+    const tagCount = new Map<CardTag, number>();
+    for (const [id] of this.owned) {
+      const c = CARD_BY_ID.get(id);
+      if (c) tagCount.set(c.tag, (tagCount.get(c.tag) ?? 0) + 1);
+    }
+    const weightOf = (c: CardDef): number => {
+      let w = RARITY_WEIGHT[c.rarity];
+      if ((tagCount.get(c.tag) ?? 0) >= CARD_RULES.sameTagAt) w *= CARD_RULES.sameTagMul;
+      return w * this.o.tuning.offerQuality(1);
     };
 
-    const drawOne = (): CardDef | null => {
+    const picks: CardOffer[] = [];
+    const used = new Set<string>();
+
+    const takeNew = (only?: (c: CardDef) => boolean): CardOffer | null => {
       let total = 0;
-      for (const c of pool) {
-        if (used.has(c.id)) continue;
-        if (picks.length > 0 && schools.size >= 3 && c.level !== 5 && !schools.has(c.school) && picks.length < CONFIG.offers - 1) continue;
-        total += weight(c);
+      for (const c of news) {
+        if (used.has(c.id) || (only && !only(c))) continue;
+        total += weightOf(c);
       }
       if (total <= 0) return null;
       let roll = this.o.rng.next() * total;
-      for (const c of pool) {
-        if (used.has(c.id)) continue;
-        roll -= weight(c);
-        if (roll <= 0) return c;
+      for (const c of news) {
+        if (used.has(c.id) || (only && !only(c))) continue;
+        roll -= weightOf(c);
+        if (roll <= 0) {
+          used.add(c.id);
+          return this.makeNewOffer(c);
+        }
       }
       return null;
     };
 
-    if (forced.length > 0) {
-      const f = forced[0]!;
-      picks.push(f);
-      used.add(f.id);
-      schools.add(f.school);
+    const takeUp = (): CardOffer | null => {
+      const avail = ups.filter((c) => !used.has(c.id));
+      if (avail.length === 0) return null;
+      const c = avail[this.o.rng.int(0, avail.length - 1)]!;
+      used.add(c.id);
+      return this.makeUpgradeOffer(c);
+    };
+
+    // 保底：连续 N 次没见金/红 → 这一次必给一张
+    if (this.pity > CARD_RULES.pityEvery) {
+      const forced = takeNew((c) => c.rarity === 'rare' || c.rarity === 'prototype');
+      if (forced) picks.push(forced);
     }
 
+    // 保证两类各有一张
+    if (!picks.some((o) => !o.isUpgrade) && news.length > 0) {
+      const o = takeNew();
+      if (o) picks.push(o);
+    }
+    if (!picks.some((o) => o.isUpgrade) && ups.length > 0) {
+      const o = takeUp();
+      if (o) picks.push(o);
+    }
+
+    // 补满
     let guard = 0;
-    while (picks.length < CONFIG.offers && guard++ < 40) {
-      const c = drawOne();
-      if (!c) break;
-      picks.push(c);
-      used.add(c.id);
-      schools.add(c.school);
+    while (picks.length < CONFIG.offers && guard++ < 20) {
+      const both = news.length > 0 && ups.length > 0;
+      const wantNew = !both || this.o.rng.next() < 0.6;
+      const o = wantNew ? takeNew() ?? takeUp() : takeUp() ?? takeNew();
+      if (!o) break;
+      picks.push(o);
     }
 
-    // 不足三张时补不重复的
-    for (const c of pool) {
-      if (picks.length >= CONFIG.offers) break;
-      if (used.has(c.id)) continue;
-      picks.push(c);
-      used.add(c.id);
+    // 至少两个不同类别
+    if (picks.length > 1 && new Set(picks.map((o) => o.card.tag)).size < 2) {
+      const first = picks[0]!.card.tag;
+      const alt = news.find((c) => !used.has(c.id) && c.tag !== first);
+      if (alt) {
+        used.add(alt.id);
+        picks[picks.length - 1] = this.makeNewOffer(alt);
+      }
     }
 
-    // 保证至少 2 个不同流派：若全同流派且有第二流派候选，替换最后一张
-    if (picks.length > 1 && new Set(picks.map((p) => p.school)).size < 2) {
-      const alt = pool.find((c) => !used.has(c.id) && c.school !== picks[0]!.school);
-      if (alt) picks[picks.length - 1] = alt;
-    }
+    // 见到金/红就重置保底
+    if (picks.some((o) => o.card.rarity === 'rare' || o.card.rarity === 'prototype')) this.pity = 0;
 
-    if (picks.length === 0) return [SUPPLY_CARD];
-    return picks;
+    return picks.length > 0 ? picks : [supply];
   }
 
-  /** 选一张卡。返回 'more'（还有待选）或 'resume'。 */
-  choose(id: string): 'more' | 'resume' | 'ignore' {
+  /** 选一张卡（改装时带方向 id）。返回 'more'（还有待选）或 'resume'。 */
+  choose(cardId: string, branchId?: string): 'more' | 'resume' | 'ignore' {
     if (this.offers.length === 0) return 'ignore';
-    const card = this.offers.find((c) => c.id === id);
-    if (!card) return 'ignore';
-    this.applyCard(card);
+    const offer = this.offers.find((c) => c.card.id === cardId);
+    if (!offer) return 'ignore';
+
+    let branch: CardBranch | null = null;
+    if (offer.isUpgrade) {
+      branch = offer.branches.find((b) => b.id === branchId) ?? offer.branches[0] ?? null;
+      if (!branch) return 'ignore';
+    }
+    this.applyOffer(offer, branch);
 
     this.offers = [];
     if (this.pendingLevels > 0) {
@@ -2595,30 +3738,37 @@ export class Game {
     return 'resume';
   }
 
-  applyCard(card: CardDef): void {
-    if (card === SUPPLY_CARD) {
+  private applyOffer(offer: CardOffer, branch: CardBranch | null): void {
+    const card = offer.card;
+    this.picksMade += 1;
+
+    if (card.id === SUPPLY_CARD.id) {
       for (const p of this.players) {
         p.hp = Math.min(p.maxHp, p.hp + 25);
         p.bombs = Math.min(CONFIG.combat.bombsMax, p.bombs + 1);
       }
       return;
     }
-    this.takenCards.add(card.id);
-    if (card.level === 5) {
-      this.takenUltimates.add(card.id);
-      this.o.fx.ultRing(this.players[0]?.x ?? 0, this.players[0]?.y ?? 0, 60);
-      this.o.audio.sfx('evolve');
-      this.emit({ type: 'toast', text: `终极 · ${card.name}` });
-    }
-    this.schoolLevel[card.school] = Math.max(this.schoolLevel[card.school], card.level);
 
+    if (!offer.isUpgrade) {
+      this.owned.set(card.id, null);
+      if (card.rarity === 'prototype') {
+        this.prototypesTaken += 1;
+        this.o.fx.ultRing(this.players[0]?.x ?? 0, this.players[0]?.y ?? 0, 90);
+        this.o.audio.sfx('evolve');
+        this.emit({ type: 'toast', text: `原型 · ${card.name}` });
+      }
+    } else if (branch) {
+      this.owned.set(card.id, branch.id);
+      this.emit({ type: 'toast', text: `${card.name} · ${branch.name}` });
+    }
+
+    const src = branch ?? card;
     for (const p of this.players) {
-      mergeAdd(p.add, card.add);
-      mergeMul(p.mul, card.mul);
-      if (card.flags) for (const f of card.flags) p.flags.add(f);
-      p.sigIndex = clamp(p.sigIndex, 1, 4);
+      mergeAdd(p.add, src.add);
+      mergeMul(p.mul, src.mul);
+      if (src.flags) for (const f of src.flags) p.flags.add(f);
       this.recalc(p);
-      if (card.level === 5 && p.flags.has('focusFire')) p.drones = 5;
     }
   }
 
@@ -2659,7 +3809,8 @@ export class Game {
   }
 
   summary(): RunSummary {
-    const scrap = scrapFor(this.kills, this.time, this.bosses, this.won, this.threat, false);
+    const scrap =
+      scrapFor(this.kills, this.time, this.bosses, this.won, this.threat, false) + this.bonusScrap;
     return {
       time: this.time,
       kills: this.kills,
@@ -2722,10 +3873,10 @@ export class Game {
     this.o.onEvent(e);
   }
 
-  /** 调试：把某流派发到 n 级（?debug 与自动化测试用）。 */
-  debugGive(school: School, n: number): void {
-    const cards = CARDS.filter((c) => c.school === school && c.level <= n);
-    for (const c of cards) this.applyCard(c);
+  /** 调试：按类别发 n 张（?debug 与自动化测试用）。 */
+  debugGive(tag: CardTag, n: number): void {
+    const cards = CARDS.filter((c) => c.tag === tag).slice(0, n);
+    for (const c of cards) this.applyOffer(this.makeNewOffer(c), null);
   }
 }
 
