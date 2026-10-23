@@ -1941,7 +1941,7 @@ export class Game {
           heavy,
           smart: p.flags.has('turretSmart'),
         });
-        p.turretCd = 4;
+        p.turretCd = K.turret.deployCd;
         this.o.audio.sfx('ui', 0, 0.6);
       }
     }

@@ -96,7 +96,7 @@ export const CONFIG = {
     drone: { cd: 1.4, dmgRatio: 0.55, speed: 460, life: 1.1, missileCd: 3, missileR: 50, missileRatio: 0.7, shieldRegen: 6 },
     mine: { cd: 2.4, dmgRatio: 1.6, trigger: 80, life: 15, jumpMul: 1.4, tetherRange: 220, tetherSlow: 0.4 },
     missile: { cd: 3, dmgRatio: 0.5, speed: 380, turn: 4.5, blast: 40 },
-    turret: { life: 15, cd: 0.85, dmgRatio: 0.6, r: 14, range: 320, max: 2, heavyMul: 1.4, heavyCd: 1.3 },
+    turret: { life: 15, cd: 0.85, dmgRatio: 0.6, r: 14, range: 320, max: 2, heavyMul: 1.4, heavyCd: 1.3, deployCd: 4 },
     well: { cd: 6, r: 180, dur: 1.2, pull: 300, dmgRatio: 1.6, singularityDur: 2, singularityR: 120, inertSlow: 0.45, inertVuln: 0.2 },
     storm: { cd: 1.2, r: 360, dmgRatio: 0.6, arcLife: 2, arcR: 46, arcTick: 0.35 },
     reflect: { dmgRatio: 0.8, speed: 420, life: 0.5 },
