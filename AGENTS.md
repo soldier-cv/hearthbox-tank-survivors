@@ -150,6 +150,7 @@ npx vite build --mode zoom    # dist-zoom/ 放大 420px 查比例与层次
 6. **不写裸数值。** 常量进 `config.ts`，可调量进 `tuning.ts`。逻辑里出现 `1.5` 这种数字就是错。
 7. **金手指只改 `tuning`。** 加一个金手指 = 加一行 `declare` + 在 `resolveTuning` 里加一行。逻辑层不知道金手指存在。
 8. **设计文档是事实来源。** 代码和 `docs/` 冲突时，先改文档再改代码，不要反过来。
+9. **构建产物与临时文件不入库。** `.gitignore` 用 `dist*/` 一次覆盖所有产物目录；验收截图才进 `evidence/`，调试用的中间截图不入库。clone 下来必须自己 `npx vite build`。换行由 `.gitattributes` 统一成 LF（本机设了 `core.autocrlf=false`，否则 checkout 会转成 CRLF 和 `eol=lf` 打架）。
 
 ## 怎么验收
 
