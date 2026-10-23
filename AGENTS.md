@@ -166,7 +166,7 @@ npx vite build --mode zoom    # dist-zoom/ 放大 420px 查比例与层次
 | 可调项面板不支持手柄（平台 M3） | 电视上打不开金手指/设置面板 | 游戏内所有流程界面自己画在画布上 |
 | `OptionsApi` 没有 setter，只能 declare | 成就/统计做不成可调项：已保存值会覆盖 declare 默认值，数字永远停在第一次写入 | 成就改在机库「战绩」页签实时读存档；等平台补 `setStatus` 再接 |
 | `choice` 至少两项（`validate()` 强制） | 想用 choice 表达"单项展示"会直接在 `create()` 抛错 | 只读展示不要用可调项 |
-| 不能打包 `.hbx`（平台 M2） | 只能本地开发，不能分发 | 等平台进度 |
+| 能打 `.hbx`，但没有签名 catalog / 自动更新（平台 M2） | 可以手动导入安装，不能从货架自动安装、升级 | 用 `pack-game.mjs` 或 CI 产物，在 `/import.html` 手动安装 |
 
 ## 写这个仓库时的经验
 
