@@ -58,7 +58,8 @@ tank-survivors/
 ├── tsconfig.json
 ├── docs/              设计文档（事实来源，代码要服从它）
 │   ├── pitch.md       玩法一页纸
-│   ├── levels.md      阶段、波次、BOSS、地形专属节点
+│   ├── levels.md      8 分钟时间轴、波次节点、BOSS（所有关卡共用）
+│   ├── campaign.md    战役线：八个节点的代号、战史、每关独有规则
 │   ├── skills.md      卡池设计意图（保留）
 │   ├── cards.md       25 张旧卡的数值与规则（v1，历史参考）
 │   ├── cards-v2.md    29 张卡的稀有度 / 改装方向 / 抽取规则（当前实现）

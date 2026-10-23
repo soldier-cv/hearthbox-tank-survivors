@@ -107,6 +107,8 @@ export const CONFIG = {
     },
     stop: { cd: 45, dur: 1.2, boost: 0.4, boostT: 3 },
     heat: { max: 100, perShot: 9, rest: 1.0, restFast: 0.6, redAt: 0.7, redMul: 1.25, redSlow: 0.1, cool: 12 },
+    /** 应急维修包：定时一次性回血（不是持续回复）。 */
+    med: { cd: 30, heal: 15, fastCd: 20, fastHeal: 12, share: 0.66 },
     aura: { r: 260 },
     phase: { dmg: 90, delay: 0.35, r: 70, slow: 0.45 },
     chill: { t: 1.5, root: 0.5, rootAfter: 1 },
@@ -227,14 +229,15 @@ export const RARITY_WEIGHT: Record<Rarity, number> = {
   prototype: 2,
 };
 
-/** 距离轴。 */
-export const AXES = ['near', 'mid', 'far', 'none'] as const;
+/** 作用轴：近 / 中 / 远是距离；自身 = 光环、全局或只作用于自己；部署 = 放在地上的单位。 */
+export const AXES = ['near', 'mid', 'far', 'self', 'deploy'] as const;
 export type CardAxis = (typeof AXES)[number];
 export const AXIS_NAMES: Record<CardAxis, string> = {
   near: '近',
   mid: '中',
   far: '远',
-  none: '自主',
+  self: '自身',
+  deploy: '部署',
 };
 
 /** 卡池规则（docs/cards-v2.md 第 7 节）。 */

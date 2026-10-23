@@ -369,6 +369,8 @@ export interface Player {
   reactT: number;
   /** 拾取漩涡冷却。 */
   shockT: number;
+  /** 应急维修包计时。 */
+  medCd: number;
 }
 
 export interface Pickup {
@@ -834,6 +836,7 @@ export class Game {
       lastHurt: -99,
       reactT: 0,
       shockT: 0,
+      medCd: 0,
     };
     this.recalc(p);
     p.hp = p.maxHp;
@@ -1277,6 +1280,30 @@ export class Game {
     }
     if (p.reactT > 0) p.reactT = Math.max(0, p.reactT - dt);
     if (p.shockT > 0) p.shockT = Math.max(0, p.shockT - dt);
+
+    // ---- 应急维修包：定时一次性回血 ----
+    if (p.flags.has('medPack')) {
+      p.medCd -= dt;
+      if (p.medCd <= 0) {
+        const M = CONFIG.cards.med;
+        const fast = p.flags.has('medFast');
+        const heal = fast ? M.fastHeal : M.heal;
+        p.medCd = fast ? M.fastCd : M.cd;
+        const got = Math.min(heal, p.maxHp - p.hp);
+        if (got > 0) {
+          p.hp += got;
+          this.addText(p.x, p.y - p.r, `+${Math.round(got)}`, '#9ad14f', 14);
+        }
+        if (p.flags.has('medShare')) {
+          for (const q of this.players) {
+            if (q === p || !q.alive) continue;
+            q.hp = Math.min(q.maxHp, q.hp + heal * M.share);
+          }
+        }
+        this.ring(p.x, p.y, 42, '#9ad14f', 0.4, 2);
+        this.o.audio.sfx('evolve', 0, 0.4);
+      }
+    }
     if (p.shieldMax > 0 && p.shield < p.shieldMax) {
       p.shieldCd -= dt;
       if (p.shieldCd <= 0) {

@@ -9,9 +9,10 @@
  */
 
 import {
-  CONFIG, COLORS, RARITY_COLORS, RARITY_NAMES, TAG_COLORS, TAG_NAMES, AXIS_NAMES, THREATS,
+  CONFIG, COLORS, RARITY_COLORS, RARITY_NAMES, TAG_NAMES, AXIS_NAMES, THREATS,
 } from './config';
 import { MAPS, SKINS, TANKS, CARD_BY_ID } from './data/exports';
+import type { Add, Mul, Flag } from './data/exports';
 import { chassisOf, levelScale } from './stats';
 import {
   levelOf,
@@ -1251,19 +1252,21 @@ export class Ui {
       104,
     );
 
-    const cw = 250;
-    const chm = 300;
+    const cw = 252;
+    const chm = 302;
     const rowLeft = (W - offers.length * cw) / 2;
     for (let i = 0; i < offers.length; i += 1) {
       const o = offers[i]!;
       const c = o.card;
       const x = rowLeft + cw / 2 + i * cw;
-      const y = 122;
+      const y = 118;
       const on = this.focus === i;
       const rc = RARITY_COLORS[c.rarity];
+      const left = x - cw / 2 + 8;
+      const inner = cw - 16;
 
       g.fillStyle = on ? 'rgba(26,34,40,0.98)' : 'rgba(18,24,28,0.94)';
-      roundRect(g, x - cw / 2 + 6, y, cw - 12, chm, 6);
+      roundRect(g, left, y, inner, chm, 6);
       g.fill();
       g.strokeStyle = on ? rc : COLORS.grid;
       g.lineWidth = on ? 3 : 1;
@@ -1271,75 +1274,142 @@ export class Ui {
 
       // 稀有度色条
       g.fillStyle = rc;
-      g.globalAlpha = on ? 1 : 0.7;
-      roundRect(g, x - cw / 2 + 6, y, cw - 12, 6, 3);
+      g.globalAlpha = on ? 1 : 0.72;
+      roundRect(g, left, y, inner, 5, 3);
       g.fill();
       g.globalAlpha = 1;
 
-      // 稀有度 + 类别 + 距离
-      g.textAlign = 'left';
-      g.fillStyle = rc;
-      g.font = '10px monospace';
-      g.fillText(`${o.isUpgrade ? '改装 · ' : ''}${RARITY_NAMES[c.rarity]} · ${TAG_NAMES[c.tag]}`, x - cw / 2 + 20, y + 24);
-      g.fillStyle = TAG_COLORS[c.tag];
+      // ---- 顶部：这是什么卡（新装置 / 改装）----
+      drawPill(
+        g,
+        left + 12,
+        y + 14,
+        o.isUpgrade ? '改装' : '新装置',
+        o.isUpgrade ? COLORS.p1 : rc,
+        o.isUpgrade,
+      );
       g.textAlign = 'right';
-      g.fillText(AXIS_NAMES[c.axis], x + cw / 2 - 20, y + 24);
+      g.textBaseline = 'middle';
+      g.font = '10px monospace';
+      g.fillStyle = COLOR_SOFT;
+      g.fillText(`${TAG_NAMES[c.tag]} · ${AXIS_NAMES[c.axis]}`, left + inner - 12, y + 23);
 
-      // 卡名
+      // ---- 卡名 ----
       g.textAlign = 'center';
       g.fillStyle = COLORS.textBright;
-      g.font = '21px monospace';
-      g.fillText(c.name, x, y + 54);
+      g.font = '22px monospace';
+      g.fillText(c.name, x, y + 52);
 
-      // 说明
-      g.fillStyle = COLORS.text;
-      g.font = '11px monospace';
-      const lines = wrap(c.desc, 18);
-      for (let l = 0; l < lines.length && l < 4; l += 1) g.fillText(lines[l]!, x, y + 78 + l * 14);
+      // ---- 稀有度 + 已有/基础效果 ----
+      g.font = '10px monospace';
+      if (o.isUpgrade) {
+        // 改装：基础效果降级成一行"已装备"，不抢视觉
+        g.fillStyle = COLOR_SOFT;
+        const all = wrap(c.desc, 26);
+        const first = (all[0] ?? c.desc).replace(/[，。；、]+$/, '');
+        g.fillText(`已装备 · ${first}${all.length > 1 ? '…' : ''}`, x, y + 78);
+      } else {
+        g.fillStyle = rc;
+        g.fillText(RARITY_NAMES[c.rarity], x, y + 78);
+      }
+
+      // 分隔线
+      g.strokeStyle = COLORS.grid;
+      g.lineWidth = 1;
+      g.beginPath();
+      g.moveTo(left + 18, y + 94);
+      g.lineTo(left + inner - 18, y + 94);
+      g.stroke();
 
       if (o.isUpgrade) {
-        // 改装：两个方向
-        g.fillStyle = COLORS.textDim;
+        // ---- 改装：两个方向是主角 ----
+        g.textAlign = 'center';
+        g.fillStyle = COLOR_SOFT;
         g.font = '10px monospace';
-        g.fillText('改装方向 · ↑↓ 切换', x, y + 138);
-        const top = y + 152;
+        g.fillText('选一个方向 · ↑ ↓', x, y + 110);
+
         for (let b = 0; b < o.branches.length; b += 1) {
           const br = o.branches[b]!;
-          const by = top + b * 62;
+          const bx = left + 16;
+          const bw = inner - 32;
+          const by = y + 122 + b * 74;
           const sel = on && this.branchFocus === b;
-          g.fillStyle = sel ? 'rgba(242,177,60,0.16)' : 'rgba(255,255,255,0.03)';
-          roundRect(g, x - cw / 2 + 18, by, cw - 36, 56, 4);
+
+          g.fillStyle = sel ? 'rgba(242,177,60,0.14)' : 'rgba(255,255,255,0.035)';
+          roundRect(g, bx, by, bw, 66, 5);
           g.fill();
           g.strokeStyle = sel ? COLORS.p1 : COLORS.grid;
           g.lineWidth = sel ? 2 : 1;
           g.stroke();
+
           g.textAlign = 'left';
           g.fillStyle = sel ? COLORS.p1Light : COLORS.textBright;
-          g.font = '13px monospace';
-          g.fillText(br.name, x - cw / 2 + 28, by + 15);
-          g.fillStyle = COLORS.text;
-          g.font = '10px monospace';
-          const bl = wrap(br.desc, 22);
-          for (let l = 0; l < bl.length && l < 3; l += 1) g.fillText(bl[l]!, x - cw / 2 + 28, by + 31 + l * 12);
+          g.font = '14px monospace';
+          g.fillText(br.name, bx + 10, by + 18);
+
+          const lines = deltaLines(br, 3);
+          const shown: Delta[] = lines.length > 0
+            ? lines
+            : wrap(br.desc, 22).slice(0, 3).map((t) => ({ text: t, good: true }));
+          g.font = '11px monospace';
+          for (let l = 0; l < shown.length; l += 1) {
+            g.fillStyle = shown[l]!.good ? COLORS.heal : COLORS.enemy;
+            g.fillText(shown[l]!.text, bx + 10, by + 37 + l * 14);
+          }
         }
       } else {
-        g.fillStyle = COLORS.textDim;
-        g.font = '10px monospace';
-        g.fillText('新装置', x, y + chm - 40);
+        // ---- 新装置：效果就是主角，数字要看得见 ----
+        const lines = wrap(c.desc, 17).slice(0, 5);
+        const startY = y + 186 - (lines.length * 19) / 2;
+        g.textAlign = 'center';
+        g.fillStyle = COLORS.textBright;
+        g.font = '13px monospace';
+        for (let l = 0; l < lines.length; l += 1) g.fillText(lines[l]!, x, startY + l * 19);
       }
 
       g.textAlign = 'center';
       g.fillStyle = on ? rc : COLORS.textDim;
       g.font = '11px monospace';
-      g.fillText(`${i + 1} · A`, x, y + chm - 16);
+      g.fillText(`${i + 1} · A`, x, y + chm - 14);
     }
+
+    // ---- 重选按钮（有图标、有次数、有键位）----
+    const hasReroll = game.rerollsLeft > 0;
+    const bw = 152;
+    const bh = 34;
+    const bx = W - bw - 18;
+    const by = 28;
+    g.fillStyle = hasReroll ? 'rgba(26,34,40,0.96)' : 'rgba(18,24,28,0.8)';
+    roundRect(g, bx, by, bw, bh, 5);
+    g.fill();
+    g.strokeStyle = hasReroll ? COLORS.p1 : COLORS.grid;
+    g.lineWidth = hasReroll ? 1.5 : 1;
+    g.stroke();
+    drawRerollIcon(g, bx + 21, by + bh / 2, hasReroll ? COLORS.p1 : COLORS.textDim);
+    g.textAlign = 'left';
+    g.textBaseline = 'middle';
+    g.fillStyle = hasReroll ? COLORS.textBright : COLORS.textDim;
+    g.font = '13px monospace';
+    g.fillText('重选', bx + 38, by + bh / 2);
+    g.fillStyle = hasReroll ? COLORS.p1 : COLORS.textDim;
+    g.font = '12px monospace';
+    g.fillText(`×${game.rerollsLeft}`, bx + 72, by + bh / 2);
+    // 键位做成键帽，别用一行看不清的小字
+    g.fillStyle = hasReroll ? 'rgba(242,177,60,0.16)' : 'rgba(255,255,255,0.05)';
+    roundRect(g, bx + 106, by + 10, 36, 15, 3);
+    g.fill();
+    g.strokeStyle = hasReroll ? COLORS.p1 : COLORS.grid;
+    g.lineWidth = 1;
+    g.stroke();
+    g.textAlign = 'center';
+    g.fillStyle = hasReroll ? COLORS.p1Light : COLORS.textDim;
+    g.font = '9px monospace';
+    g.fillText('Q / Y', bx + 124, by + 18);
 
     g.textAlign = 'center';
     g.fillStyle = COLORS.textDim;
     g.font = '11px monospace';
-    g.fillText('← → 选卡 · ↑ ↓ 选方向 · A 确认 · 1 2 3 直选 · Q 重选', W / 2, 452);
-    g.fillStyle = game.rerollsLeft > 0 ? COLORS.heal : COLORS.textDim;
-    g.fillText(`重选次数 ${game.rerollsLeft}`, W / 2, 472);
+    g.fillText('← → 选卡 · ↑ ↓ 选方向 · A 确认 · 1 2 3 直选', W / 2, 452);
     g.restore();
   }
 
@@ -1457,6 +1527,243 @@ export class Ui {
 // ===================================================================
 // 辅助
 // ===================================================================
+
+/** 次要信息用的灰。 */
+const COLOR_SOFT = COLORS.textDim;
+
+/** 卡面上的一行"变化"。good = 对玩家有利（绿），否则橙色。 */
+interface Delta {
+  text: string;
+  good: boolean;
+}
+
+/** 加性修饰 → 文案。第三项：数值越大越好（high）还是越小越好（low）。 */
+const ADD_LABEL: Record<string, [string, number, 'high' | 'low']> = {
+  dmg: ['伤害', 1, 'high'],
+  projectiles: ['并联', 1, 'high'],
+  pierce: ['穿透', 1, 'high'],
+  bulletSpeed: ['弹速', 1, 'high'],
+  range: ['射程', 1, 'high'],
+  blastRadius: ['爆炸半径', 1, 'high'],
+  maxHp: ['生命', 1, 'high'],
+  armorFlat: ['减伤', 1, 'high'],
+  regen: ['回复/s', 1, 'high'],
+  shieldMax: ['护盾', 1, 'high'],
+  pickup: ['拾取', 1, 'high'],
+  dropRate: ['掉落率', 100, 'high'],
+  critAdd: ['暴击', 100, 'high'],
+  bounce: ['弹跳', 1, 'high'],
+  drones: ['无人机', 1, 'high'],
+  mines: ['地雷', 1, 'high'],
+  teslaChain: ['连锁', 1, 'high'],
+  missiles: ['导弹', 1, 'high'],
+  turrets: ['炮台', 1, 'high'],
+  heatMax: ['热量上限', 1, 'high'],
+  chill: ['减速', 100, 'high'],
+  frostVuln: ['易伤', 100, 'high'],
+  auraSlow: ['光环减速', 100, 'high'],
+  grenades: ['手雷', 1, 'high'],
+  dashCharges: ['冲刺次数', 1, 'high'],
+  reflect: ['弹片', 1, 'high'],
+  reflectPierce: ['弹片穿透', 1, 'high'],
+  chainBlast: ['连锁层数', 1, 'high'],
+  minRange: ['最小射程', 1, 'low'],
+  spread: ['散布', 1, 'low'],
+};
+
+/** 乘性修饰 → 文案。pct = 直接换算百分比；inv = 越大越快（间隔）；down = 越小越快（冷却）。 */
+const MUL_LABEL: Record<string, [string, 'pct' | 'inv' | 'down']> = {
+  dmg: ['伤害', 'pct'],
+  range: ['射程', 'pct'],
+  speed: ['移速', 'pct'],
+  interval: ['射速', 'inv'],
+  spread: ['散布', 'down'],
+  bulletSpeed: ['弹速', 'pct'],
+  blastRadius: ['爆炸半径', 'pct'],
+  blastDmg: ['爆炸伤害', 'pct'],
+  wallDmg: ['对墙', 'pct'],
+  falloff: ['穿透保留', 'pct'],
+  napalmR: ['火池半径', 'pct'],
+  napalmDps: ['火池 DPS', 'pct'],
+  napalmLife: ['火池持续', 'pct'],
+  napalmCd: ['燃油冷却', 'down'],
+  grenadeCd: ['手雷冷却', 'down'],
+  grenadeR: ['手雷半径', 'pct'],
+  missileCd: ['导弹冷却', 'down'],
+  missileDmg: ['导弹伤害', 'pct'],
+  stormCd: ['落雷间隔', 'down'],
+  stormDmg: ['落雷伤害', 'pct'],
+  stopCd: ['时停冷却', 'down'],
+  stopDur: ['时停时长', 'pct'],
+  auraR: ['光环范围', 'pct'],
+  reflectDmg: ['弹片伤害', 'pct'],
+  coneCd: ['喷口冷却', 'down'],
+  coneR: ['喷口范围', 'pct'],
+  coneDmg: ['喷口伤害', 'pct'],
+  mineCd: ['布雷间隔', 'down'],
+  teslaCd: ['电击间隔', 'down'],
+  droneCd: ['无人机间隔', 'down'],
+  droneDmg: ['无人机伤害', 'pct'],
+  mineDmg: ['地雷伤害', 'pct'],
+  teslaDmg: ['电击伤害', 'pct'],
+  shieldRecharge: ['护盾充能', 'down'],
+};
+
+/** 只有标记、没有数值的方向：给一句能读懂的话。 */
+const FLAG_LABEL: Partial<Record<Flag, string>> = {
+  noSpread: '散布归零',
+  heavyShot: '命中击退',
+  pierceWall: '穿墙',
+  pierceArmor: '无视正面减伤',
+  bounceFrag: '反弹分裂 2 发',
+  napalmTrail: '着火拖火痕',
+  napalmJet: '改短距直喷',
+  teslaVuln: '感电 2s（受伤 +15%）',
+  teslaPillar: '改为电极柱 8s',
+  mineHoming: '敌人被拽向雷',
+  mineJump: '跳雷 · 0.28s 后空爆',
+  mineTether: '绊索 · 拖拽减速',
+  phaseDash: '冲刺留残影',
+  dashSlow: '残影减速 45%',
+  regenCombat: '战斗中 1.2/s',
+  regenLow: '血 <30% 回复 ×3',
+  reactArmor: '0.6s 内下一击 −50%',
+  regenShare: '队友回 40%',
+  medPack: '每 30s 回 15',
+  medFast: '改成 20s 回 12',
+  medShare: '同伴也回 66%',
+  reflectArc: '弹片改电击',
+  freezeRoot: '1s 后定身 0.5s',
+  wellSingularity: '拉 2s · 结束再爆',
+  wellInert: '减速 45% · 易伤 +20%',
+  stormArc: '落雷留 2s 电弧',
+  droneShield: '无人机挡子弹',
+  droneMissile: '无人机每 3s 一发导弹',
+  missileBlast: '导弹命中爆炸',
+  turretHeavy: '单座 · 伤害 ×1.4',
+  turretSmart: '打你瞄准的目标',
+  railCard: '轨道炮',
+  railOverload: '蓄力 0.7s · ×4',
+  railFast: '2.5s 一发 · ×2',
+  heatCool: '停火缩到 0.8s',
+  heatRedline: '热量 >70% 伤害 +25%',
+  stopShort: '20s 一次 · 0.6s',
+  stopLong: '60s 一次 · 2.5s',
+  grenadeAir: '空爆 · 无视地形',
+  pickupShock: '拾取时震开敌人',
+  scrapDrop: '掉落 12% 变废铁',
+  focusFire: '集火瞄准目标',
+  doubleBlast: '二次爆炸',
+  chainEliteImmune: '精英不连锁',
+  railWall: '穿墙',
+};
+
+function signedNum(n: number): string {
+  const v = Math.round(n * 10) / 10;
+  return `${v >= 0 ? '+' : '−'}${Math.abs(v)}`;
+}
+
+function signedPct(n: number): string {
+  const v = Math.round(n);
+  return `${v >= 0 ? '+' : '−'}${Math.abs(v)}%`;
+}
+
+/**
+ * 从 add / mul / flags 直接生成"变了多少"。
+ *
+ * 卡面不再复述描述里的数字：改装方向必须显示真实的相对变化，
+ * 否则玩家看不出这条分支到底改了什么。
+ */
+function deltaLines(src: { add?: Add; mul?: Mul; flags?: Flag[] }, max: number): Delta[] {
+  const out: Delta[] = [];
+
+  const add = src.add as Record<string, number | undefined> | undefined;
+  if (add) {
+    for (const key of Object.keys(ADD_LABEL)) {
+      const raw = add[key];
+      if (!raw) continue;
+      const [name, scale, dir] = ADD_LABEL[key]!;
+      const num = raw * scale;
+      out.push({ text: `${name} ${signedNum(num)}`, good: dir === 'high' ? num > 0 : num < 0 });
+    }
+  }
+
+  const mul = src.mul as Record<string, number | undefined> | undefined;
+  if (mul) {
+    for (const key of Object.keys(MUL_LABEL)) {
+      const v = mul[key];
+      if (v === undefined || v === 1) continue;
+      const [name, mode] = MUL_LABEL[key]!;
+      if (mode === 'inv') {
+        const pct = (1 / v - 1) * 100;
+        out.push({ text: `${name} ${signedPct(pct)}`, good: pct > 0 });
+      } else if (mode === 'down') {
+        const cut = (1 - v) * 100;
+        out.push({ text: `${name} ${signedPct(-cut)}`, good: cut > 0 });
+      } else {
+        const pct = (v - 1) * 100;
+        out.push({ text: `${name} ${signedPct(pct)}`, good: pct > 0 });
+      }
+    }
+  }
+
+  for (const f of src.flags ?? []) {
+    const label = FLAG_LABEL[f];
+    if (label) out.push({ text: label, good: true });
+  }
+
+  return out.slice(0, max);
+}
+
+/** 小标签：改装 / 新装置。 */
+function drawPill(
+  g: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  text: string,
+  color: string,
+  filled: boolean,
+): void {
+  g.save();
+  g.textAlign = 'left';
+  g.textBaseline = 'middle';
+  g.font = '9px monospace';
+  const w = text.length * 8 + 12;
+  if (filled) {
+    g.fillStyle = color;
+    roundRect(g, x, y, w, 15, 3);
+    g.fill();
+  }
+  g.strokeStyle = color;
+  g.lineWidth = 1;
+  roundRect(g, x, y, w, 15, 3);
+  g.stroke();
+  g.fillStyle = filled ? COLORS.void : color;
+  g.fillText(text, x + 6, y + 8);
+  g.restore();
+}
+
+/** 重选图标：一圈箭头。没这个图标，玩家只会看到"重选次数 2"这几个字。 */
+function drawRerollIcon(g: CanvasRenderingContext2D, cx: number, cy: number, color: string): void {
+  g.save();
+  g.strokeStyle = color;
+  g.fillStyle = color;
+  g.lineWidth = 1.8;
+  g.lineCap = 'round';
+  g.beginPath();
+  g.arc(cx, cy, 6.5, -Math.PI * 0.12, Math.PI * 1.4);
+  g.stroke();
+  const a = -Math.PI * 0.12;
+  const hx = cx + Math.cos(a) * 6.5;
+  const hy = cy + Math.sin(a) * 6.5;
+  g.beginPath();
+  g.moveTo(hx - 1, hy - 5);
+  g.lineTo(hx + 4, hy + 0.5);
+  g.lineTo(hx - 3.5, hy + 3);
+  g.closePath();
+  g.fill();
+  g.restore();
+}
 
 function inp(hub: InputHub, a: Parameters<InputHub['has']>[0]): boolean {
   return hub.has(a);

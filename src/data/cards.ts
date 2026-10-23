@@ -157,6 +157,10 @@ export type Flag =
   /** 反应装甲：受击后短时间减伤。 */
   | 'reactArmor'
   | 'regenShare'
+  /** 应急维修包：定时回血。 */
+  | 'medPack'
+  | 'medFast'
+  | 'medShare'
   | 'reflectArc'
   /** 冻结定身。 */
   | 'freezeRoot'
@@ -289,7 +293,7 @@ export const CARDS: CardDef[] = [
     name: '破片手雷',
     rarity: 'common',
     tag: 'area',
-    axis: 'near',
+    axis: 'mid',
     desc: '每 6s 向前抛一颗：落点 220，半径 70，80 伤。',
     add: { grenades: 1 },
     branches: [
@@ -337,7 +341,7 @@ export const CARDS: CardDef[] = [
     name: '复合装甲',
     rarity: 'common',
     tag: 'survive',
-    axis: 'none',
+    axis: 'self',
     desc: '血上限 +18，受到的所有伤害 −1.5。',
     add: { maxHp: 18, armorFlat: 1.5 },
     branches: [
@@ -361,21 +365,21 @@ export const CARDS: CardDef[] = [
     name: '应急维修包',
     rarity: 'common',
     tag: 'survive',
-    axis: 'none',
-    desc: '每 30s 自动回 15 血。',
-    add: { regen: 0.5 },
+    axis: 'self',
+    desc: '每 30s 自动回 15 血（战斗中也会回）。',
+    flags: ['medPack'],
     branches: [
       {
         id: 'repair-fast',
         name: '快速投放',
-        desc: '20s 一次，回 12。',
-        add: { regen: 0.1 },
+        desc: '改成 20s 一次，回 12。',
+        flags: ['medFast'],
       },
       {
         id: 'repair-share',
         name: '战地共享',
-        desc: '双人时同伴也回 10。',
-        flags: ['regenShare'],
+        desc: '双人时同伴也回 66%。',
+        flags: ['medShare'],
       },
     ],
   },
@@ -384,7 +388,7 @@ export const CARDS: CardDef[] = [
     name: '磁力拾荒',
     rarity: 'common',
     tag: 'economy',
-    axis: 'none',
+    axis: 'self',
     desc: '拾取范围 +60%，掉落率 +10%。',
     add: { pickup: 60, dropRate: 0.1 },
     branches: [
@@ -530,7 +534,7 @@ export const CARDS: CardDef[] = [
     name: '僚机',
     rarity: 'refined',
     tag: 'auto',
-    axis: 'none',
+    axis: 'self',
     desc: '+1 架环绕无人机（主炮 0.55×）。',
     add: { drones: 1 },
     branches: [
@@ -554,7 +558,7 @@ export const CARDS: CardDef[] = [
     name: '磁吸雷',
     rarity: 'refined',
     tag: 'auto',
-    axis: 'near',
+    axis: 'deploy',
     desc: '每 2.4s 布雷：80px 内敌人触发时吸附追踪。',
     add: { mines: 1 },
     flags: ['mineHoming'],
@@ -579,7 +583,7 @@ export const CARDS: CardDef[] = [
     name: '相位冲刺',
     rarity: 'refined',
     tag: 'survive',
-    axis: 'none',
+    axis: 'self',
     desc: '冲刺穿过敌人，留残影（0.35s 后爆 90 伤）。',
     flags: ['phaseDash'],
     branches: [
@@ -603,7 +607,7 @@ export const CARDS: CardDef[] = [
     name: '纳米修复',
     rarity: 'refined',
     tag: 'survive',
-    axis: 'none',
+    axis: 'self',
     desc: '脱战 2.5s 后每秒回 4，受击中断。',
     add: { regen: 4 },
     branches: [
@@ -680,7 +684,7 @@ export const CARDS: CardDef[] = [
     name: '导弹阵列',
     rarity: 'military',
     tag: 'auto',
-    axis: 'none',
+    axis: 'self',
     desc: '每 3s 齐射 4 发追踪导弹（0.5×）。',
     add: { missiles: 4 },
     branches: [
@@ -706,7 +710,7 @@ export const CARDS: CardDef[] = [
     name: '哨戒炮台',
     rarity: 'military',
     tag: 'auto',
-    axis: 'near',
+    axis: 'deploy',
     desc: '部署炮台 15s（0.6×，最多 2 座），你走开它还在打。',
     add: { turrets: 1 },
     branches: [
@@ -729,7 +733,7 @@ export const CARDS: CardDef[] = [
     name: '力场护盾',
     rarity: 'military',
     tag: 'survive',
-    axis: 'none',
+    axis: 'self',
     desc: '+1 层护盾，9.5s 自充。',
     add: { shieldMax: 1 },
     branches: [
@@ -753,7 +757,7 @@ export const CARDS: CardDef[] = [
     name: '时间膨胀',
     rarity: 'military',
     tag: 'control',
-    axis: 'mid',
+    axis: 'self',
     desc: '周围 260px 敌人与敌弹速度 −25%。',
     add: { auraSlow: 0.25 },
     branches: [
@@ -782,7 +786,7 @@ export const CARDS: CardDef[] = [
     name: '引力井',
     rarity: 'rare',
     tag: 'control',
-    axis: 'mid',
+    axis: 'deploy',
     desc: '投出奇点：1.2s 内把 180px 内敌人拉向中心。',
     add: { wells: 1 },
     branches: [
@@ -805,7 +809,7 @@ export const CARDS: CardDef[] = [
     name: '磁暴场',
     rarity: 'rare',
     tag: 'area',
-    axis: 'mid',
+    axis: 'self',
     desc: '360px 内每 1.2s 落雷一次（0.6×），区域跟随你。',
     add: { storm: 1 },
     branches: [
@@ -828,7 +832,7 @@ export const CARDS: CardDef[] = [
     name: '蜂群指挥',
     rarity: 'rare',
     tag: 'auto',
-    axis: 'none',
+    axis: 'self',
     desc: '无人机共 5 架，集火你手动瞄准的目标。',
     add: { drones: 5 },
     flags: ['focusFire'],
@@ -853,7 +857,7 @@ export const CARDS: CardDef[] = [
     name: '反射装甲',
     rarity: 'rare',
     tag: 'survive',
-    axis: 'none',
+    axis: 'self',
     desc: '受到伤害时向四周弹片（12 发，0.8×）。',
     add: { reflect: 12 },
     branches: [
@@ -929,7 +933,7 @@ export const CARDS: CardDef[] = [
     name: '时停核心',
     rarity: 'prototype',
     tag: 'control',
-    axis: 'far',
+    axis: 'self',
     desc: '每 45s 静止 1.2s：全场敌人与敌弹静止。代价：你自己也不能移动。',
     add: { stops: 1 },
     branches: [
@@ -963,7 +967,7 @@ export const SUPPLY_CARD: CardDef = {
   name: '补给卡',
   rarity: 'common',
   tag: 'survive',
-  axis: 'none',
+  axis: 'self',
   desc: '回 25 血 + 1 颗炸弹。',
   branches: [],
 };
