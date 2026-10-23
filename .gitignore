@@ -1,5 +1,8 @@
 node_modules/
-dist/
+
+# 构建产物一律不入库：dist/（游戏）、dist-sheet/（画笔刷页）、dist-zoom/（放大页）
+# 用 dist*/ 一次覆盖，避免以后再加 dist-xxx 又漏掉
+dist*/
 coverage/
 .vite/
 *.local
