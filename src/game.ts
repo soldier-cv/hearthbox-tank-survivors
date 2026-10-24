@@ -5,18 +5,14 @@
  * 金手指与设置通过 tuning / 回调注入，这里读不到"哪个金手指改哪个数值"。
  */
 
-import {
-  CONFIG,
-  PHASE_TABLE,
-  SPAWN,
-  THREATS,
-  SCHOOLS,
-  type School,
-} from './config';
+import { CONFIG, PHASE_TABLE, SPAWN, THREATS } from './config';
 import {
   CARDS,
   SUPPLY_CARD,
+  RARITY_WEIGHT,
   type CardDef,
+  type CardEvol,
+  type CardKind,
   type Add,
   type Mul,
   type Flag,
@@ -93,6 +89,12 @@ export interface Bullet {
   radial: boolean;
   doubleBlast: boolean;
   chainBlast: number;
+  /** 追踪转向速度（0 = 不追踪）。 */
+  homing: number;
+  /** 这一发带的元素（0 = 无）。 */
+  element: number;
+  /** 元素等级（1..3）。 */
+  elemLevel: number;
   color: string;
   size: number;
   /** 穿透时已命中的敌人，避免重复结算。 */
@@ -126,6 +128,21 @@ export interface Enemy {
   slow: number;
   slowT: number;
   mark: number;
+  /** 燃烧。 */
+  burnT: number;
+  burnDps: number;
+  /** 酸蚀层数与每层易伤。 */
+  acidStacks: number;
+  acidPer: number;
+  /** 额外易伤（感电 / 脆化）。 */
+  vuln: number;
+  vulnT: number;
+  /** 定身剩余。 */
+  rootT: number;
+  /** 伤害数字合并。 */
+  accDmg: number;
+  accT: number;
+  accCrit: boolean;
   elite: boolean;
   affix: AffixDef | null;
   affix2: AffixDef | null;
@@ -218,6 +235,33 @@ export interface Player {
   teslaChain: number;
   shieldMax: number;
   regen: number;
+  /** 弹药带的元素（0 = 无）与等级。 */
+  elem: number;
+  elemLv: number;
+  /** 弹跳次数。 */
+  bounce: number;
+  /** 追踪转向。 */
+  homing: number;
+  /** 导弹。 */
+  missiles: number;
+  missileCd: number;
+  /** 轨道炮（卡）。 */
+  railgun: boolean;
+  railCdCard: number;
+  railCharge: number;
+  /** 时停核心。 */
+  kitStops: number;
+  stopCd: number;
+  stopCdMax: number;
+  stopDur: number;
+  stopT: number;
+  /** 时停结束那一炮的倍率。 */
+  stopBeamMul: number;
+  /** 维修组计时。 */
+  lastHurt: number;
+  medCd: number;
+  /** 自动瞄准锁定的敌人（防炮塔来回甩）。 */
+  aimId: number;
   chainBlast: number;
   radial: number;
   nova: boolean;
@@ -312,9 +356,16 @@ export interface RingFx {
   width: number;
 }
 
+/** 一次升级里的一张候选。evolves 非空表示"满级质变"的那一次。 */
+export interface CardOffer {
+  card: CardDef;
+  nextLevel: number;
+  evolves: CardEvol[];
+}
+
 export type GameEvent =
-  | { type: 'levelup'; offers: CardDef[]; level: number }
-  | { type: 'levelupMore'; offers: CardDef[]; level: number }
+  | { type: 'levelup'; offers: CardOffer[]; level: number }
+  | { type: 'levelupMore'; offers: CardOffer[]; level: number }
   | { type: 'toast'; text: string }
   | { type: 'over'; data: RunSummary }
   | { type: 'win'; data: RunSummary }
@@ -407,10 +458,11 @@ export class Game {
   bosses = 0;
 
   pendingLevels = 0;
-  offers: CardDef[] = [];
-  takenUltimates = new Set<string>();
-  takenCards = new Set<string>();
-  schoolLevel: Record<School, number> = { fire: 0, pierce: 0, blast: 0, auto: 0, survive: 0 };
+  offers: CardOffer[] = [];
+  /** 每张卡的等级（0 = 没拿过）。 */
+  cardLevels = new Map<string, number>();
+  /** 已选的质变方向。 */
+  evolved = new Map<string, string>();
   rerollsLeft = CONFIG.rerollsPerRound;
 
   nextWave = 30;
@@ -456,9 +508,8 @@ export class Game {
     this.bosses = 0;
     this.pendingLevels = 0;
     this.offers = [];
-    this.takenUltimates.clear();
-    this.takenCards.clear();
-    for (const s of SCHOOLS) this.schoolLevel[s] = 0;
+    this.cardLevels.clear();
+    this.evolved.clear();
     this.rerollsLeft = CONFIG.rerollsPerRound;
     this.nextWave = 30;
     this.waveIndex = 0;
@@ -477,6 +528,7 @@ export class Game {
     clearPool(this.ebullets);
     clearPool(this.enemies);
     clearPool(this.pickups);
+    this.booms.length = 0;
     clearPool(this.texts);
     clearPool(this.puddles);
     clearPool(this.mines);
@@ -577,6 +629,24 @@ export class Game {
       chainBlast: 0,
       radial: 0,
       nova: false,
+      elem: 0,
+      elemLv: 0,
+      bounce: 0,
+      homing: 0,
+      missiles: 0,
+      missileCd: 0,
+      railgun: false,
+      railCdCard: 0,
+      railCharge: 0,
+      kitStops: 0,
+      stopCd: 0,
+      stopCdMax: 45,
+      stopDur: 1.2,
+      stopBeamMul: 6,
+      stopT: 0,
+      lastHurt: -99,
+      medCd: 0,
+      aimId: -1,
     };
     this.recalc(p);
     p.hp = p.maxHp;
@@ -634,6 +704,14 @@ export class Game {
     p.chainBlast = Math.min(3, nz(add.chainBlast));
     p.radial = Math.min(12, nz(add.radial));
     p.nova = nz(add.nova) > 0;
+    p.bounce = nz(add.bounce);
+    p.homing = nz(add.homing);
+    p.missiles = Math.min(6, nz(add.missiles));
+    p.railgun = nz(add.railgun) > 0;
+    p.kitStops = nz(add.stops);
+    p.stopCdMax = p.flags.has('stopShort') ? 20 : p.flags.has('stopLong') ? 60 : 45;
+    p.stopDur = p.flags.has('stopShort') ? 0.8 : p.flags.has('stopLong') ? 2.4 : 1.2;
+    p.stopBeamMul = p.flags.has('stopShort') ? 4 : p.flags.has('stopLong') ? 10 : 6;
 
     const before = p.maxHp;
     p.maxHp = p.st.maxHp;
@@ -664,11 +742,15 @@ export class Game {
       }
     }
 
-    this.updateEnemies(step);
-    this.updateBullets(step, this.bullets, false);
-    this.updateBullets(step, this.ebullets, true);
+    // 时停：世界冻结（玩家仍能走位，见 updatePlayer）
+    const stopped = this.players.some((p) => p.alive && p.stopT > 0);
+    const foeStep = stopped ? 0 : step;
+    this.updateEnemies(foeStep);
+    this.updateBullets(foeStep, this.bullets, false);
+    this.updateBullets(foeStep, this.ebullets, true);
     this.updatePickups(step);
     this.updateHazards(step);
+    this.updateBooms(step);
     this.updateSpawning(step, inputs);
     this.updateEvents(step);
     this.world.update(step);
@@ -776,12 +858,14 @@ export class Game {
     // ---- 瞄准 ----
     const autoOn = this.o.setting('auto-aim') !== false;
     const assist = Number(this.o.setting('aim-assist') ?? 0.6);
-    const target = this.nearestEnemy(p.x, p.y, p.st.range, false);
+    // 目标锁定：新目标要明显更近才换，避免两个敌人之间来回甩炮塔（"摇头"）
+    const target = this.aimPick(p);
     let want = p.angle;
     if (inp.aiming) want = inp.aimAngle;
     else if (autoOn && target) want = Math.atan2(target.y - p.y, target.x - p.x);
-    const turn = inp.aiming ? 0.45 + assist * 0.4 : autoOn && target ? 0.3 + assist * 0.5 : 0.5;
-    p.turretAngle += shortAngle(want, p.turretAngle) * Math.min(1, turn);
+    // 转向速度按秒算，不再按帧
+    const turnRate = inp.aiming ? 16 + assist * 6 : autoOn && target ? 11 : 8;
+    p.turretAngle += shortAngle(want, p.turretAngle) * (1 - Math.exp(-turnRate * dt));
 
     // ---- 签名：静止 ----
     if (!p.moving) p.still += dt;
@@ -829,7 +913,7 @@ export class Game {
     // ---- 开火 ----
     const rofBoost = 1 + (p.dashBoost > 0 ? sig.dashRoF : 0);
     p.fireCd -= dt * rofBoost;
-    if (p.fireCd <= 0) {
+    if (p.fireCd <= 0 && p.stopT <= 0) {
       // 金手指「射速倍率」在这里生效
       p.fireCd = Math.max(0.05, this.o.tuning.fireInterval(p.st.interval));
       this.fire(p, target);
@@ -859,6 +943,59 @@ export class Game {
     }
 
     // ---- 紧急无敌（港湾 Ⅳ）----
+    // ---- 导弹 ----
+    if (p.missiles > 0) {
+      p.missileCd -= dt;
+      if (p.missileCd <= 0) {
+        p.missileCd = CONFIG.combat.missileCd;
+        const n = Math.max(1, p.missiles);
+        const baseA = target ? Math.atan2(target.y - p.y, target.x - p.x) : p.turretAngle;
+        for (let i = 0; i < n; i += 1) {
+          const a = baseA + (i - (n - 1) / 2) * 0.35;
+          const mb = this.makeBullet(p.x, p.y, a, CONFIG.combat.missileSpeed, p.st.dmg * CONFIG.combat.missileDmg, false);
+          mb.owner = p.index;
+          mb.homing = 4;
+          mb.life = 2.2;
+          mb.color = '#ff9f6b';
+          mb.size = 3;
+          this.bullets.push(mb);
+        }
+        this.o.audio.sfx('shoot', 0, 0.5);
+      }
+    }
+
+    // ---- 轨道炮（卡）----
+    if (p.railgun) {
+      const charge = p.flags.has('railOverload') ? 0.7 : 0.35;
+      const cd = p.flags.has('railFast') ? 2.5 : 5;
+      if (p.railCharge > 0) {
+        p.railCharge -= dt;
+        if (p.railCharge <= 0) {
+          p.railCharge = 0;
+          p.railCdCard = cd;
+          this.railshotCard(p);
+        }
+      } else {
+        p.railCdCard = Math.max(0, p.railCdCard - dt);
+        if (p.railCdCard <= 0) p.railCharge = Math.max(0.01, charge);
+      }
+    }
+
+    // ---- 时停核心 ----
+    if (p.stopT > 0) {
+      p.stopT = Math.max(0, p.stopT - dt);
+      if (p.stopT === 0) this.stopBeam(p);
+    } else if (p.kitStops > 0) {
+      p.stopCd = Math.max(0, p.stopCd - dt);
+      if (p.stopCd <= 0) {
+        p.stopCd = p.stopCdMax;
+        p.stopT = p.stopDur;
+        this.o.fx.ultNova(p.x, p.y);
+        this.o.audio.sfx('nova');
+        this.ring(p.x, p.y, 560, '#9fd8ff', p.stopDur, 3);
+      }
+    }
+
     if (sig.emergencyCharges > 0 && p.emergencyCharges > 0 && lowRatio < sig.lowHpAt && p.emergency <= 0) {
       p.emergencyCharges -= 1;
       p.emergency = 3;
@@ -875,7 +1012,15 @@ export class Game {
     p.recoil = Math.max(0, p.recoil - dt * 6);
 
     // ---- 回复 / 护盾 ----
-    if (p.regen > 0 && p.hp < p.maxHp) p.hp = Math.min(p.maxHp, p.hp + p.regen * dt);
+    // 维修组：脱战 2 秒才回；质变后放宽
+    if (p.regen > 0 && p.hp < p.maxHp) {
+      const calm = this.time - p.lastHurt > 2;
+      const rate = p.flags.has('medCombat') ? Math.min(p.regen, 0.4) : calm ? p.regen : 0;
+      if (rate > 0) {
+        const low = p.flags.has('medLow') && p.hp / p.maxHp < 0.3;
+        p.hp = Math.min(p.maxHp, p.hp + rate * (low ? 3 : 1) * dt);
+      }
+    }
     if (p.shieldMax > 0 && p.shield < p.shieldMax) {
       p.shieldCd -= dt;
       if (p.shieldCd <= 0) {
@@ -907,6 +1052,25 @@ export class Game {
     if (p.index === 0) {
       this.o.fx.vignette = lowRatio < 0.3 ? Math.min(1, (0.3 - lowRatio) / 0.3) : 0;
     }
+  }
+
+  /** 自动瞄准选目标（带滞回）。 */
+  private aimPick(p: Player): Enemy | null {
+    const near = this.nearestEnemy(p.x, p.y, p.st.range, false);
+    if (!near) {
+      p.aimId = -1;
+      return null;
+    }
+    if (p.aimId >= 0) {
+      const cur = this.enemies.find((e) => e.id === p.aimId && e.alive && !e.dead);
+      if (cur) {
+        const dc = dist2(p.x, p.y, cur.x, cur.y);
+        const dn = dist2(p.x, p.y, near.x, near.y);
+        if (dc <= dn * 1.6) return cur;
+      }
+    }
+    p.aimId = near.id;
+    return near;
   }
 
   /** 最近敌人。ignoreGrass=true 时忽略草丛里的（视线挡住的）。 */
@@ -975,7 +1139,7 @@ export class Game {
           a,
           dmg * (pellets > 1 ? 0.45 : 1),
           crit || isLock,
-          false,
+          p.flags.has('heavyShot'),
           false,
         );
       }
@@ -1015,6 +1179,45 @@ export class Game {
     this.o.fx.ultRail(p.x, p.y, a, 1400);
     this.o.audio.sfx('rail');
     this.o.fx.blast(p.x + Math.cos(a) * 30, p.y + Math.sin(a) * 30, 26);
+  }
+
+  /** 轨道炮（卡）。 */
+  private railshotCard(p: Player): void {
+    const a = p.turretAngle;
+    const pierce = p.flags.has('railOverload') ? 99 : p.flags.has('railFast') ? 2 : 4;
+    const mult = p.flags.has('railOverload') ? 4 : p.flags.has('railFast') ? 2 : 3;
+    const b = this.makeBullet(p.x, p.y, a, p.st.bulletSpeed * 1.6, p.st.dmg * mult, false);
+    b.pierce = pierce;
+    b.falloff = 1;
+    b.rail = true;
+    b.wallDmg = 3;
+    b.size = 7;
+    b.color = '#ff4d4d';
+    b.life = 1.6;
+    b.owner = p.index;
+    this.bullets.push(b);
+    this.o.fx.ultRail(p.x, p.y, a, 1400);
+    this.o.audio.sfx('rail');
+    this.o.fx.addShake('shakeBlast');
+    this.o.rumble(0.5, 0.3, 120);
+  }
+
+  /** 时停结束：沿炮口打出一条贯穿全场的炮击。 */
+  private stopBeam(p: Player): void {
+    const b = this.makeBullet(p.x, p.y, p.turretAngle, 1500, p.st.dmg * p.stopBeamMul, false);
+    b.pierce = 99;
+    b.falloff = 1;
+    b.rail = true;
+    b.wallDmg = 3;
+    b.size = 8;
+    b.color = '#c9f5fb';
+    b.life = 1.2;
+    b.owner = p.index;
+    this.bullets.push(b);
+    this.o.fx.ultRail(p.x, p.y, p.turretAngle, 1600);
+    this.o.fx.addShake('shakeBoss');
+    this.o.audio.sfx('rail');
+    this.o.rumble(0.7, 0.4, 160);
   }
 
   /** 要塞协议：环形齐射。 */
@@ -1069,6 +1272,10 @@ export class Game {
     b.chainBlast = p.chainBlast;
     b.heavy = heavy;
     b.radial = radial;
+    b.bounce = p.bounce;
+    b.homing = p.homing;
+    b.element = p.elem;
+    b.elemLevel = p.elemLv;
     b.owner = p.index;
     b.color = crit ? '#ffffff' : p.tank.light;
     b.size = crit ? 5 : heavy ? 6 : 4;
@@ -1103,6 +1310,9 @@ export class Game {
       radial: false,
       doubleBlast: false,
       chainBlast: 0,
+      homing: 0,
+      element: 0,
+      elemLevel: 0,
       color: crit ? '#ffffff' : '#f3ecdd',
       size: 4,
       hits: [],
@@ -1159,7 +1369,7 @@ export class Game {
       d.y += (ty - d.y) * Math.min(1, dt * 7);
       d.cd -= dt;
       if (d.cd > 0) continue;
-      const target = focus ?? this.nearestEnemy(d.x, d.y, p.st.range * 0.8, false);
+      const target = (p.flags.has('droneFocus') ? this.aimPick(p) : null) ?? focus ?? this.nearestEnemy(d.x, d.y, p.st.range * 0.8, false);
       if (!target) continue;
       d.cd = 1.4;
       const a = Math.atan2(target.y - d.y, target.x - d.x);
@@ -1233,10 +1443,25 @@ export class Game {
   // ===================================================================
 
   private updateBullets(dt: number, pool: Bullet[], fromEnemy: boolean): void {
+    if (dt <= 0) return;
     for (const b of pool) {
       if (!b.alive) continue;
       b.px = b.x;
       b.py = b.y;
+
+      // 追踪
+      if (b.homing > 0) {
+        const t = this.nearestEnemy(b.x, b.y, 520, false);
+        if (t) {
+          const want = Math.atan2(t.y - b.y, t.x - b.x);
+          const cur = Math.atan2(b.vy, b.vx);
+          const na = cur + shortAngle(want, cur) * Math.min(1, b.homing * dt);
+          const sp = Math.hypot(b.vx, b.vy);
+          b.vx = Math.cos(na) * sp;
+          b.vy = Math.sin(na) * sp;
+        }
+      }
+
       b.x += b.vx * dt;
       b.y += b.vy * dt;
       b.life -= dt;
@@ -1265,6 +1490,17 @@ export class Game {
           this.onTileDestroyed(tx, ty, b);
         } else {
           this.o.fx.hit(b.x, b.y, '#9a9aa8', false);
+        }
+        // 跳弹：撞墙反弹
+        if (b.bounce > 0 && this.world.inBounds(tx, ty)) {
+          b.bounce -= 1;
+          const cx = tx * T + T / 2;
+          const cy = ty * T + T / 2;
+          if (Math.abs(b.x - cx) > Math.abs(b.y - cy)) b.vx = -b.vx;
+          else b.vy = -b.vy;
+          b.life = Math.max(b.life, 0.4);
+          this.o.fx.pierce(b.x, b.y, Math.atan2(b.vy, b.vx));
+          continue;
         }
         if (b.blast > 0) this.explode(b, b.x, b.y);
         b.alive = false;
@@ -1317,6 +1553,7 @@ export class Game {
         }
 
         this.damageEnemy(e, dmg, owner, b.crit, 'shot');
+        if (b.element > 0) this.hitElement(owner, e, b);
 
         // 终焉·要塞协议 Ⅲ：齐射命中后标记，后续受伤 +8%
         if (owner && owner.sig.markBonus > 0 && b.radial) e.mark = Math.max(e.mark, 2.5);
@@ -1325,6 +1562,16 @@ export class Game {
         if (b.chain > 0) this.doChain(b, e, dmg);
         if (b.puddle > 0 && this.o.rng.chance(0.22)) this.addPuddle(e.x, e.y, 22, b.puddle, 3);
         if (b.blast > 0) this.explode(b, b.x, b.y);
+
+        // 命中后反弹
+        if (b.bounce > 0) {
+          b.bounce -= 1;
+          const vx0 = b.vx;
+          b.vx = -b.vy;
+          b.vy = -vx0;
+          b.life = Math.max(b.life, 0.4);
+          break;
+        }
 
         if (b.rail) {
           // 轨道炮：穿墙、4 个目标、无衰减
@@ -1348,6 +1595,49 @@ export class Game {
 
     // 回收
     compact(pool);
+  }
+
+  /** 命中时挂元素状态。同一时间只有一种元素（由玩家身上的 elem 决定）。 */
+  private hitElement(owner: Player | undefined, e: Enemy, b: Bullet): void {
+    const lv = Math.max(1, b.elemLevel);
+    switch (b.element) {
+      case 1: // 燃烧
+        e.burnT = 3;
+        e.burnDps = Math.max(e.burnDps, 8 + 4 * (lv - 1));
+        break;
+      case 2: { // 电弧
+        let src = e;
+        const used = new Set<number>([e.id]);
+        for (let i = 0; i < lv; i += 1) {
+          const nx = this.nearestExcept(src.x, src.y, 90, used);
+          if (!nx) break;
+          this.o.fx.chain(src.x, src.y, nx.x, nx.y);
+          this.damageEnemy(nx, b.dmg * 0.5, owner, false, 'arc');
+          if (owner?.flags.has('shockVuln')) {
+            nx.vuln = Math.max(nx.vuln, 0.15);
+            nx.vulnT = 2;
+          }
+          used.add(nx.id);
+          src = nx;
+        }
+        break;
+      }
+      case 3: // 冰霜
+        e.slow = Math.max(e.slow, 0.15 + 0.1 * lv);
+        e.slowT = 1.6;
+        if (owner?.flags.has('freezeRoot') && e.slowT > 0) e.rootT = Math.max(e.rootT, 1);
+        if (owner?.flags.has('brittle')) {
+          e.vuln = Math.max(e.vuln, 0.25);
+          e.vulnT = 2;
+        }
+        break;
+      case 4: // 酸蚀
+        e.acidPer = Math.max(e.acidPer, 0.05 + 0.05 * lv);
+        e.acidStacks = Math.min(owner?.flags.has('acidStack') ? 5 : 3, e.acidStacks + 1);
+        break;
+      default:
+        break;
+    }
   }
 
   private isFrontal(e: Enemy, b: Bullet): boolean {
@@ -1393,6 +1683,7 @@ export class Game {
       if (e.dead) killed.push(e);
     }
     this.o.fx.blast(x, y, r);
+    if (r >= 50) this.o.fx.addShake('shakeBlast');
     this.world.splash(x, y, r, dmg * b.wallDmg * 1.4, this.scratch);
     if (b.doubleBlast) this.pushDelayedBlast(x, y, r * 0.6, dmg);
     if (b.chainBlast > 0 && killed.length > 0) {
@@ -1484,6 +1775,16 @@ export class Game {
       slow: 0,
       slowT: 0,
       mark: 0,
+      burnT: 0,
+      burnDps: 0,
+      acidStacks: 0,
+      acidPer: 0,
+      vuln: 0,
+      vulnT: 0,
+      rootT: 0,
+      accDmg: 0,
+      accT: 0,
+      accCrit: false,
       elite: affix !== null,
       affix,
       affix2,
@@ -1565,6 +1866,16 @@ export class Game {
       slow: 0,
       slowT: 0,
       mark: 0,
+      burnT: 0,
+      burnDps: 0,
+      acidStacks: 0,
+      acidPer: 0,
+      vuln: 0,
+      vulnT: 0,
+      rootT: 0,
+      accDmg: 0,
+      accT: 0,
+      accCrit: false,
       elite: true,
       affix: null,
       affix2: null,
@@ -1586,6 +1897,7 @@ export class Game {
   }
 
   private updateEnemies(dt: number): void {
+    if (dt <= 0) return;
     this.grid.clear();
     for (const e of this.enemies) {
       if (!e.alive || e.dead) continue;
@@ -1598,6 +1910,28 @@ export class Game {
       e.flash = Math.max(0, e.flash - dt);
       e.slowT = Math.max(0, e.slowT - dt);
       if (e.slowT <= 0) e.slow = 0;
+      e.vulnT = Math.max(0, e.vulnT - dt);
+      if (e.vulnT <= 0) e.vuln = 0;
+      e.rootT = Math.max(0, e.rootT - dt);
+      if (e.burnT > 0) {
+        e.burnT -= dt;
+        this.damageEnemy(e, e.burnDps * dt, undefined, false, 'burn');
+        if (this.players.some((q) => q.flags.has('fireSpread')) && this.o.rng.chance(0.2)) {
+          this.world.burnAt(e.x, e.y, 46);
+          this.addPuddle(e.x, e.y, 26, 5, 1.2);
+        }
+        if (this.players.some((q) => q.flags.has('fireTrail')) && this.o.rng.chance(0.25)) {
+          this.addPuddle(e.x, e.y, 20, 6, 1.4);
+        }
+      }
+      if (e.accT > 0) {
+        e.accT -= dt;
+        if (e.accT <= 0 && e.accDmg > 0) {
+          this.addText(e.x, e.y - e.r, `${Math.round(e.accDmg)}`, e.accCrit ? '#ffe6b0' : '#f3ecdd', e.accCrit ? 16 : 12);
+          e.accDmg = 0;
+          e.accCrit = false;
+        }
+      }
       e.noHitT += dt;
       if (e.shieldMax > 0 && e.noHitT > 5 && e.shield < e.shieldMax) e.shield = Math.min(e.shieldMax, e.shield + e.shieldMax * dt * 0.4);
 
@@ -1884,6 +2218,8 @@ export class Game {
     if (!e.alive || e.dead) return;
     let d = dmg;
     if (e.mark > 0) d *= 1.08;
+    if (e.acidStacks > 0) d *= 1 + e.acidStacks * e.acidPer;
+    if (e.vuln > 0) d *= 1 + e.vuln;
     if (e.shield > 0) {
       const absorbed = Math.min(e.shield, d);
       e.shield -= absorbed;
@@ -1903,9 +2239,16 @@ export class Game {
     if (by) by.damage += d;
 
     if (source === 'shot') {
-      this.addText(e.x, e.y - e.r, `${Math.round(d)}`, crit ? '#ffe6b0' : '#f3ecdd', crit ? 16 : 12);
-      if (crit) this.o.audio.sfx('crit');
-      else this.o.audio.sfx('hit', this.o.rng.int(-60, 60), 0.5);
+      // 同一目标 0.2 秒内的数字合并，避免满屏跳字
+      e.accDmg += d;
+      e.accT = 0.2;
+      if (crit) {
+        e.accCrit = true;
+        this.o.audio.sfx('crit');
+        this.o.fx.stop(0.03);
+      } else {
+        this.o.audio.sfx('hit', this.o.rng.int(-60, 60), 0.5);
+      }
     }
 
     if (e.hp <= 0) this.killEnemy(e, by ?? null, crit);
@@ -1968,6 +2311,21 @@ export class Game {
       });
       const gained = e.def.score * (e.elite ? 5 : 1);
       this.score += gained;
+
+      // 小血包：打得凶就回得多
+      if (by && this.o.rng.chance(e.elite ? 0.2 : 0.03)) {
+        this.dropSupply(e.x, e.y, 'repair', e.elite ? 15 : 6);
+      }
+      // 酸蚀·溶解：死亡时向周围溅射
+      if (by?.flags.has('acidSplash') && e.acidStacks > 0) {
+        const near = this.enemiesInRadius(e.x, e.y, 70, this.q2);
+        for (const o of near) {
+          if (o === e) continue;
+          o.acidPer = Math.max(o.acidPer, e.acidPer);
+          o.acidStacks = Math.min(5, o.acidStacks + 1);
+        }
+        this.o.fx.blast(e.x, e.y, 60);
+      }
     }
     void crit;
   }
@@ -1976,6 +2334,7 @@ export class Game {
     if (!p.alive || p.invuln > 0) return;
     if (this.o.cheat('god-mode') > 0) return;
 
+    p.lastHurt = this.time;
     let d = dmg;
     const th = this.threatInfo();
     d *= 1; // 伤害倍率已在敌人构造时乘过
@@ -1987,6 +2346,25 @@ export class Game {
       p.shieldCd = p.shieldRecharge;
       this.o.fx.shieldBreak(p.x, p.y, p.r * 1.5);
       this.o.audio.sfx('shieldBreak');
+      if (p.flags.has('shieldSpikes')) {
+        for (let i = 0; i < 12; i += 1) {
+          const a = (Math.PI * 2 * i) / 12;
+          const sb = this.makeBullet(p.x, p.y, a, 420, p.st.dmg * 0.8, false);
+          sb.owner = p.index;
+          sb.color = '#c9f5fb';
+          sb.size = 3;
+          sb.life = 0.5;
+          this.bullets.push(sb);
+        }
+        this.o.fx.nova(p.x, p.y, p.r * 2.4);
+      }
+      if (p.flags.has('shieldNova')) {
+        const list = this.enemiesInRadius(p.x, p.y, 320, this.q2);
+        for (const e of list) this.damageEnemy(e, 80, p, false, 'nova');
+        this.clearEnemyBullets(p.x, p.y, 320);
+        this.o.fx.ultNova(p.x, p.y);
+        this.o.audio.sfx('nova');
+      }
       if (p.nova && p.shield === 0) {
         this.o.fx.ultNova(p.x, p.y);
         this.o.audio.sfx('nova');
@@ -2143,9 +2521,23 @@ export class Game {
       if (!m.alive) continue;
       m.life -= dt;
       if (m.life <= 0) { m.alive = false; continue; }
+      // 磁吸：把附近敌人拽向雷
+      if (this.players.some((q) => q.flags.has('mineMagnet'))) {
+        const near = this.nearestEnemy(m.x, m.y, 90, false);
+        if (near && !near.boss) {
+          const d = Math.hypot(near.x - m.x, near.y - m.y) || 1;
+          near.x += ((m.x - near.x) / d) * Math.min(d, 240 * dt);
+          near.y += ((m.y - near.y) / d) * Math.min(d, 240 * dt);
+        }
+      }
       const list = this.enemiesInRadius(m.x, m.y, m.r, this.q2);
       if (list.length === 0) continue;
       m.alive = false;
+      if (this.players[m.owner]?.flags.has('mineJump')) {
+        this.booms.push({ alive: true, owner: m.owner, x: m.x, y: m.y, r: m.r * 1.3, dmg: m.dmg, t: 0.28 });
+        this.o.fx.nova(m.x, m.y, m.r);
+        continue;
+      }
       const dmg = m.dmg;
       for (const e of list) this.damageEnemy(e, dmg, this.players[m.owner] ?? this.players[0], false, 'mine');
       this.world.splash(m.x, m.y, m.r, dmg * 0.6, this.scratch);
@@ -2312,6 +2704,7 @@ export class Game {
       this.dropSupply(pos.x, pos.y, 'repair');
       const pos2 = this.world.randomFreePoint(pos.x, pos.y, 120, p.tank.amphibious);
       this.dropSupply(pos2.x, pos2.y, 'bomb');
+      this.emit({ type: 'toast', text: '补给已投放 · 绿十字回血 / 黄点加炸弹' });
     }
 
     // 地形节点
@@ -2465,10 +2858,29 @@ export class Game {
     return out;
   }
 
-  private dropSupply(x: number, y: number, kind: 'repair' | 'bomb'): void {
+  /** 跳雷/残影的延迟爆炸。 */
+  booms: { alive: boolean; owner: number; x: number; y: number; r: number; dmg: number; t: number }[] = [];
+
+  private updateBooms(dt: number): void {
+    for (const b of this.booms) {
+      if (!b.alive) continue;
+      b.t -= dt;
+      if (b.t > 0) continue;
+      b.alive = false;
+      const list = this.enemiesInRadius(b.x, b.y, b.r, this.q2);
+      for (const e of list) this.damageEnemy(e, b.dmg, this.players[b.owner], false, 'boom');
+      this.o.fx.blast(b.x, b.y, b.r);
+      this.o.audio.sfx('blast', 0, 0.7);
+    }
+    let n = 0;
+    for (const b of this.booms) if (b.alive) this.booms[n++] = b;
+    this.booms.length = n;
+  }
+
+  private dropSupply(x: number, y: number, kind: 'repair' | 'bomb', value = 0): void {
     this.pickups.push({
       alive: true, kind, x, y, vx: 0, vy: 0,
-      value: kind === 'repair' ? 30 : 1, t: 0, size: 9,
+      value: kind === 'repair' ? value || 30 : 1, t: 0, size: 9,
       color: kind === 'repair' ? '#9ad14f' : '#f2b13c',
     });
   }
@@ -2497,95 +2909,95 @@ export class Game {
     this.emit({ type: 'levelup', offers: this.offers, level: this.level });
   }
 
-  /** 候选池 = 未满级卡 + 已达成的终极（未拿过）。 */
-  private candidates(): CardDef[] {
-    const out: CardDef[] = [];
-    for (const c of CARDS) {
-      if (c.level === 5) {
-        if (this.schoolLevel[c.school] >= 4 && !this.takenUltimates.has(c.id)) out.push(c);
-        continue;
-      }
-      if (this.takenCards.has(c.id)) continue;
-      if (this.schoolLevel[c.school] < c.level - 1) continue;
-      out.push(c);
-    }
-    return out;
+  /** 这张卡现在几级（0 = 没拿过）。 */
+  cardLevel(id: string): number {
+    return this.cardLevels.get(id) ?? 0;
   }
 
-  private rollOffers(): CardDef[] {
+  private maxLevel(c: CardDef): number {
+    return c.steps.length;
+  }
+
+  /** 候选 = 没满级的卡。 */
+  private candidates(): CardDef[] {
+    return CARDS.filter((c) => this.cardLevel(c.id) < this.maxLevel(c));
+  }
+
+  private makeOffer(c: CardDef): CardOffer {
+    const nextLevel = this.cardLevel(c.id) + 1;
+    const evolves = nextLevel >= this.maxLevel(c) && c.evolves ? c.evolves : [];
+    return { card: c, nextLevel, evolves };
+  }
+
+  private supplyOffer(): CardOffer {
+    return { card: SUPPLY_CARD, nextLevel: 1, evolves: [] };
+  }
+
+  private rollOffers(): CardOffer[] {
     const pool = this.candidates();
-    if (pool.length === 0) return [SUPPLY_CARD];
+    if (pool.length === 0) return [this.supplyOffer()];
 
-    // 终极卡必出：某流派刚好满 4 级时，下一次升级必定给那张终极
-    const forced = pool.filter((c) => c.level === 5);
-
-    const picks: CardDef[] = [];
-    const used = new Set<string>();
-    const schools = new Set<School>();
-
-    const weight = (c: CardDef): number => {
-      const base = 1;
-      const deep = this.schoolLevel[c.school] > 0 ? 1.35 : 1;
-      return base * deep * this.o.tuning.offerQuality(1);
+    const weightOf = (c: CardDef): number => {
+      let w = RARITY_WEIGHT[c.rarity];
+      if (this.cardLevel(c.id) > 0) w *= 1.35;
+      return w * this.o.tuning.offerQuality(1);
     };
 
-    const drawOne = (): CardDef | null => {
+    const picks: CardOffer[] = [];
+    const used = new Set<string>();
+    const take = (only?: (c: CardDef) => boolean): CardOffer | null => {
       let total = 0;
       for (const c of pool) {
-        if (used.has(c.id)) continue;
-        if (picks.length > 0 && schools.size >= 3 && c.level !== 5 && !schools.has(c.school) && picks.length < CONFIG.offers - 1) continue;
-        total += weight(c);
+        if (used.has(c.id) || (only && !only(c))) continue;
+        total += weightOf(c);
       }
       if (total <= 0) return null;
       let roll = this.o.rng.next() * total;
       for (const c of pool) {
-        if (used.has(c.id)) continue;
-        roll -= weight(c);
-        if (roll <= 0) return c;
+        if (used.has(c.id) || (only && !only(c))) continue;
+        roll -= weightOf(c);
+        if (roll <= 0) {
+          used.add(c.id);
+          return this.makeOffer(c);
+        }
       }
       return null;
     };
 
-    if (forced.length > 0) {
-      const f = forced[0]!;
-      picks.push(f);
-      used.add(f.id);
-      schools.add(f.school);
+    // 至少一张新卡，至少一张升级
+    if (this.cardLevels.size < CARDS.length) {
+      const fresh = take((c) => this.cardLevel(c.id) === 0);
+      if (fresh) picks.push(fresh);
     }
+    const up = take((c) => this.cardLevel(c.id) > 0);
+    if (up) picks.push(up);
 
     let guard = 0;
-    while (picks.length < CONFIG.offers && guard++ < 40) {
-      const c = drawOne();
-      if (!c) break;
-      picks.push(c);
-      used.add(c.id);
-      schools.add(c.school);
+    while (picks.length < CONFIG.offers && guard++ < 30) {
+      const o = take();
+      if (!o) break;
+      picks.push(o);
     }
 
-    // 不足三张时补不重复的
-    for (const c of pool) {
-      if (picks.length >= CONFIG.offers) break;
-      if (used.has(c.id)) continue;
-      picks.push(c);
-      used.add(c.id);
-    }
-
-    // 保证至少 2 个不同流派：若全同流派且有第二流派候选，替换最后一张
-    if (picks.length > 1 && new Set(picks.map((p) => p.school)).size < 2) {
-      const alt = pool.find((c) => !used.has(c.id) && c.school !== picks[0]!.school);
+    // 至少两个不同类别
+    if (picks.length > 1 && new Set(picks.map((o) => o.card.kind)).size < 2) {
+      const alt = take((c) => c.kind !== picks[0]!.card.kind);
       if (alt) picks[picks.length - 1] = alt;
     }
 
-    if (picks.length === 0) return [SUPPLY_CARD];
-    return picks;
+    return picks.length > 0 ? picks : [this.supplyOffer()];
   }
 
-  /** 选一张卡。返回 'more'（还有待选）或 'resume'。 */
-  choose(id: string): 'more' | 'resume' | 'ignore' {
+  /** 选一张卡（满级质变时带方向 id）。 */
+  choose(cardId: string, evolveId?: string): 'more' | 'resume' | 'ignore' {
     if (this.offers.length === 0) return 'ignore';
-    const card = this.offers.find((c) => c.id === id);
-    if (!card) return 'ignore';
-    this.applyCard(card);
+    const offer = this.offers.find((o) => o.card.id === cardId);
+    if (!offer) return 'ignore';
+    let ev: CardEvol | null = null;
+    if (offer.evolves.length > 0) {
+      ev = offer.evolves.find((e) => e.id === evolveId) ?? offer.evolves[0] ?? null;
+    }
+    this.applyOffer(offer, ev);
 
     this.offers = [];
     if (this.pendingLevels > 0) {
@@ -2595,30 +3007,46 @@ export class Game {
     return 'resume';
   }
 
-  applyCard(card: CardDef): void {
-    if (card === SUPPLY_CARD) {
+  private applyOffer(offer: CardOffer, ev: CardEvol | null): void {
+    const c = offer.card;
+    if (c.id === SUPPLY_CARD.id) {
       for (const p of this.players) {
         p.hp = Math.min(p.maxHp, p.hp + 25);
         p.bombs = Math.min(CONFIG.combat.bombsMax, p.bombs + 1);
       }
       return;
     }
-    this.takenCards.add(card.id);
-    if (card.level === 5) {
-      this.takenUltimates.add(card.id);
-      this.o.fx.ultRing(this.players[0]?.x ?? 0, this.players[0]?.y ?? 0, 60);
-      this.o.audio.sfx('evolve');
-      this.emit({ type: 'toast', text: `终极 · ${card.name}` });
-    }
-    this.schoolLevel[card.school] = Math.max(this.schoolLevel[card.school], card.level);
+
+    const lv = Math.min(this.maxLevel(c), offer.nextLevel);
+    this.cardLevels.set(c.id, lv);
+    if (ev) this.evolved.set(c.id, ev.id);
+    const step = c.steps[lv - 1]!;
 
     for (const p of this.players) {
-      mergeAdd(p.add, card.add);
-      mergeMul(p.mul, card.mul);
-      if (card.flags) for (const f of card.flags) p.flags.add(f);
-      p.sigIndex = clamp(p.sigIndex, 1, 4);
+      if (step.add) mergeAdd(p.add, step.add);
+      if (step.mul) mergeMul(p.mul, step.mul);
+      if (step.flags) for (const f of step.flags) p.flags.add(f);
+      if (ev) {
+        if (ev.add) mergeAdd(p.add, ev.add);
+        if (ev.mul) mergeMul(p.mul, ev.mul);
+        if (ev.flags) for (const f of ev.flags) p.flags.add(f);
+      }
+      // 元素：同一时间只带一种，强度跟卡等级
+      if (c.elem) {
+        p.elem = c.elem;
+        p.elemLv = lv;
+      }
       this.recalc(p);
-      if (card.level === 5 && p.flags.has('focusFire')) p.drones = 5;
+    }
+
+    if (ev) {
+      this.o.fx.ultRing(this.players[0]?.x ?? 0, this.players[0]?.y ?? 0, 90);
+      this.o.audio.sfx('evolve');
+      this.o.fx.stop(0.1);
+      this.o.fx.addShake('shakeNova');
+      this.emit({ type: 'toast', text: '质变 · ' + c.name + ' · ' + ev.name });
+    } else {
+      this.emit({ type: 'toast', text: c.name + ' Lv' + lv });
     }
   }
 
@@ -2722,10 +3150,10 @@ export class Game {
     this.o.onEvent(e);
   }
 
-  /** 调试：把某流派发到 n 级（?debug 与自动化测试用）。 */
-  debugGive(school: School, n: number): void {
-    const cards = CARDS.filter((c) => c.school === school && c.level <= n);
-    for (const c of cards) this.applyCard(c);
+  /** 调试：按类别发 n 张（?debug 与自动化测试用）。 */
+  debugGive(kind: CardKind, n: number): void {
+    const cards = CARDS.filter((c) => c.kind === kind).slice(0, n);
+    for (const c of cards) this.applyOffer(this.makeOffer(c), null);
   }
 }
 

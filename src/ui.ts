@@ -8,8 +8,12 @@
  * 平台不提供画布内焦点系统，这里自己实现。
  */
 
-import { CONFIG, COLORS, SCHOOL_COLORS, SCHOOL_NAMES, THREATS, type School } from './config';
-import { MAPS, SKINS, TANKS } from './data/exports';
+import { CONFIG, COLORS, THREATS } from './config';
+import {
+  KIND_COLORS, KIND_NAMES, RARITY_COLORS, RARITY_NAMES,
+  type CardEvol,
+} from './data/cards';
+import { MAPS, SKINS, TANKS, CARD_BY_ID } from './data/exports';
 import { chassisOf, levelScale } from './stats';
 import {
   levelOf,
@@ -42,7 +46,7 @@ export interface UiHooks {
   onRestart(): void;
   onQuit(): void;
   onExitToShelf(): void;
-  onChoose(cardId: string): void;
+  onChoose(cardId: string, evolveId?: string): void;
   onReroll(): void;
   /** 存档被改动，需要立刻落盘。 */
   onSave(): void;
@@ -53,6 +57,7 @@ export class Ui {
   screen: Screen = 'title';
   twoPlayer = false;
   private focus = 0;
+  private branchFocus = 0;
   private tab: 0 | 1 | 2 | 3 = 0;
   private result: RunSummary | null = null;
   /** 进化预览（机库里按 north 打开）。 */
@@ -98,6 +103,7 @@ export class Ui {
   openLevelup(): void {
     this.screen = 'levelup';
     this.focus = 0;
+    this.branchFocus = 0;
   }
 
   openResult(r: RunSummary, win: boolean): void {
@@ -195,19 +201,32 @@ export class Ui {
     const n = game.offers.length;
     if (n === 0) { this.resume(); return; }
     if (this.focus >= n) this.focus = 0;
+    const cur = game.offers[this.focus];
+    const maxEvo = (cur?.evolves.length ?? 0) - 1;
+    if (this.branchFocus > maxEvo) this.branchFocus = 0;
+    if (this.branchFocus < 0) this.branchFocus = 0;
 
-    if (this.input.has('menuLeft')) { this.focus = (this.focus + n - 1) % n; this.hooks.sfx('ui'); }
-    if (this.input.has('menuRight')) { this.focus = (this.focus + 1) % n; this.hooks.sfx('ui'); }
+    if (this.input.has('menuLeft')) { this.focus = (this.focus + n - 1) % n; this.branchFocus = 0; this.hooks.sfx('ui'); }
+    if (this.input.has('menuRight')) { this.focus = (this.focus + 1) % n; this.branchFocus = 0; this.hooks.sfx('ui'); }
+    if (cur && cur.evolves.length > 1) {
+      if (this.input.has('menuUp')) { this.branchFocus = (this.branchFocus + cur.evolves.length - 1) % cur.evolves.length; this.hooks.sfx('ui'); }
+      if (this.input.has('menuDown')) { this.branchFocus = (this.branchFocus + 1) % cur.evolves.length; this.hooks.sfx('ui'); }
+    }
     if (this.input.has('reroll') && game.rerollsLeft > 0) {
       if (game.reroll()) this.hooks.sfx('ui');
+      this.branchFocus = 0;
     }
     const pick = this.input.has('pick1') ? 0 : this.input.has('pick2') ? 1 : this.input.has('pick3') ? 2 : -1;
     const want = pick >= 0 ? pick : this.input.has('confirm') ? this.focus : -1;
     if (want >= 0 && want < n) {
-      const card = game.offers[want]!;
-      this.hooks.onChoose(card.id);
+      const offer = game.offers[want]!;
+      const ev: CardEvol | null = offer.evolves.length > 0
+        ? offer.evolves[want === this.focus ? this.branchFocus : 0] ?? offer.evolves[0]!
+        : null;
+      this.hooks.onChoose(offer.card.id, ev?.id);
       this.hooks.sfx('ui');
       this.focus = 0;
+      this.branchFocus = 0;
     }
   }
 
@@ -622,22 +641,27 @@ export class Ui {
     }
   }
 
+  /** 右上角：本局拿到的卡与等级（颜色 = 类别）。 */
   private drawSchoolChips(g: CanvasRenderingContext2D, game: Game): void {
-    const schools: School[] = ['fire', 'pierce', 'blast', 'auto', 'survive'];
     const x = W - 12;
     const y = 78;
     g.save();
     g.textAlign = 'right';
     g.textBaseline = 'middle';
     g.font = '10px monospace';
-    for (let i = 0; i < schools.length; i += 1) {
-      const s = schools[i]!;
-      const lvl = game.schoolLevel[s];
-      const ult = game.takenUltimates.has(`${s}-x`);
-      const cy = y + i * 15;
-      g.fillStyle = lvl > 0 ? SCHOOL_COLORS[s] : COLORS.textDim;
-      g.globalAlpha = lvl > 0 ? 1 : 0.45;
-      g.fillText(`${SCHOOL_NAMES[s]}${lvl > 0 ? ' ' + '●'.repeat(Math.min(4, lvl)) : ''}${ult ? ' ★' : ''}`, x, cy);
+    let i = 0;
+    for (const [id, lv] of game.cardLevels) {
+      const card = CARD_BY_ID.get(id);
+      if (!card) continue;
+      const evo = game.evolved.get(id);
+      g.fillStyle = KIND_COLORS[card.kind];
+      g.fillText(
+        `${card.name} ${'●'.repeat(lv)}${evo ? '★' : ''}`,
+        x,
+        y + i * 15,
+      );
+      i += 1;
+      if (i >= 10) break;
     }
     g.restore();
   }
@@ -1205,98 +1229,142 @@ export class Ui {
     const offers = game.offers;
     if (offers.length === 0) return;
     g.save();
-    g.fillStyle = 'rgba(11,14,16,0.72)';
+    g.fillStyle = 'rgba(11,14,16,0.78)';
     g.fillRect(0, 0, W, H);
 
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     g.fillStyle = COLORS.textDim;
     g.font = '11px monospace';
-    g.fillText('FIELD PROMOTION', W / 2, 74);
+    g.fillText('FIELD PROMOTION', W / 2, 56);
     g.fillStyle = COLORS.textBright;
-    g.font = '28px monospace';
-    g.fillText(`升级 ${game.level}`, W / 2, 104);
+    g.font = '26px monospace';
+    g.fillText(`升级 ${game.level}`, W / 2, 84);
     g.fillStyle = COLORS.text;
-    g.font = '12px monospace';
-    g.fillText(
-      game.players.length > 1 ? '任一名玩家选择 · 强化对全队生效' : '三选一 · 每次升级都在做减法',
-      W / 2,
-      128,
-    );
+    g.font = '11px monospace';
+    g.fillText('同一张卡拿 3 次：第 3 次选质变方向', W / 2, 106);
 
-    const cw = 236;
-    const chh = 264;
-    const gx = (W - offers.length * cw) / 2 + cw / 2;
+    const cw = 252;
+    const chm = 302;
+    const rowLeft = (W - offers.length * cw) / 2;
     for (let i = 0; i < offers.length; i += 1) {
-      const c = offers[i]!;
-      const x = gx + i * cw - cw / 2;
-      const y = 156;
+      const o = offers[i]!;
+      const c = o.card;
+      const x = rowLeft + cw / 2 + i * cw;
+      const y = 120;
       const on = this.focus === i;
-      const color = SCHOOL_COLORS[c.school];
-      const ult = c.level === 5;
+      const rc = RARITY_COLORS[c.rarity];
+      const left = x - cw / 2 + 8;
+      const inner = cw - 16;
+      const isEvolve = o.evolves.length > 0;
 
       g.fillStyle = on ? 'rgba(26,34,40,0.98)' : 'rgba(18,24,28,0.94)';
-      roundRect(g, x - cw / 2 + 6, y, cw - 12, chh, 6);
+      roundRect(g, left, y, inner, chm, 6);
       g.fill();
-      g.strokeStyle = on ? color : COLORS.grid;
+      g.strokeStyle = on ? rc : COLORS.grid;
       g.lineWidth = on ? 3 : 1;
       g.stroke();
 
-      // 顶部流派色条
-      g.fillStyle = color;
-      g.globalAlpha = on ? 1 : 0.6;
-      roundRect(g, x - cw / 2 + 6, y, cw - 12, 8, 4);
+      // 稀有度色条
+      g.fillStyle = rc;
+      g.globalAlpha = on ? 1 : 0.72;
+      roundRect(g, left, y, inner, 5, 3);
       g.fill();
       g.globalAlpha = 1;
 
-      // 等级点
+      // 类别 + 稀有度
       g.textAlign = 'left';
-      g.fillStyle = COLORS.textDim;
+      g.textBaseline = 'middle';
       g.font = '10px monospace';
-      g.fillText(ult ? '终极' : `${SCHOOL_NAMES[c.school]} ${['', 'Ⅰ', 'Ⅱ', 'Ⅲ', 'Ⅳ'][c.level] ?? c.level}`, x - cw / 2 + 20, y + 30);
-      if (!ult) {
-        for (let k = 0; k < 4; k += 1) {
-          g.fillStyle = k < c.level ? color : COLORS.grid;
-          g.beginPath();
-          g.arc(x + cw / 2 - 34 + k * 8, y + 30, 2.6, 0, Math.PI * 2);
+      g.fillStyle = KIND_COLORS[c.kind];
+      g.fillText(`${KIND_NAMES[c.kind]} · ${RARITY_NAMES[c.rarity]}`, left + 12, y + 23);
+
+      // 等级点
+      g.textAlign = 'right';
+      g.fillStyle = COLORS.textDim;
+      for (let k = 0; k < c.steps.length; k += 1) {
+        const px = left + inner - 12 - (c.steps.length - 1 - k) * 9;
+        g.fillStyle = k < o.nextLevel ? rc : COLORS.grid;
+        g.beginPath();
+        g.arc(px, y + 23, 2.8, 0, Math.PI * 2);
+        g.fill();
+      }
+
+      // 名字
+      g.textAlign = 'center';
+      g.fillStyle = COLORS.textBright;
+      g.font = '22px monospace';
+      g.fillText(c.name, x, y + 54);
+
+      if (isEvolve) {
+        g.fillStyle = COLORS.p1;
+        g.font = '11px monospace';
+        g.fillText('满级 · 选一个质变', x, y + 80);
+        g.fillStyle = COLORS.textDim;
+        g.font = '10px monospace';
+        g.fillText('↑ ↓ 切换', x, y + 96);
+
+        for (let e = 0; e < o.evolves.length; e += 1) {
+          const ev = o.evolves[e]!;
+          const by = y + 108 + e * 88;
+          const sel = on && this.branchFocus === e;
+          g.fillStyle = sel ? 'rgba(242,177,60,0.14)' : 'rgba(255,255,255,0.035)';
+          roundRect(g, left + 14, by, inner - 28, 80, 5);
           g.fill();
+          g.strokeStyle = sel ? COLORS.p1 : COLORS.grid;
+          g.lineWidth = sel ? 2 : 1;
+          g.stroke();
+          g.textAlign = 'left';
+          g.fillStyle = sel ? COLORS.p1Light : COLORS.textBright;
+          g.font = '14px monospace';
+          g.fillText(ev.name, left + 26, by + 18);
+          g.fillStyle = COLORS.text;
+          g.font = '10px monospace';
+          const lines = wrap(ev.desc, 20);
+          for (let l = 0; l < lines.length && l < 4; l += 1) {
+            g.fillText(lines[l]!, left + 26, by + 36 + l * 13);
+          }
+        }
+      } else {
+        g.fillStyle = COLORS.textBright;
+        g.font = '13px monospace';
+        const lines = wrap(c.steps[Math.min(o.nextLevel, c.steps.length) - 1]!.desc, 17);
+        const startY = y + 150 - (lines.length * 19) / 2;
+        for (let l = 0; l < lines.length && l < 6; l += 1) {
+          g.fillText(lines[l]!, x, startY + l * 19);
         }
       }
 
-      // 卡名
       g.textAlign = 'center';
-      g.fillStyle = ult ? color : COLORS.textBright;
-      g.font = `${ult ? 22 : 20}px monospace`;
-      g.fillText(c.name, x, y + 68);
-
-      // 描述：按宽度折行
-      g.fillStyle = COLORS.text;
-      g.font = '12px monospace';
-      const lines = wrap(c.desc, 15);
-      for (let l = 0; l < lines.length; l += 1) g.fillText(lines[l]!, x, y + 104 + l * 18);
-
-      if (ult) {
-        g.fillStyle = color;
-        g.globalAlpha = 0.16;
-        roundRect(g, x - cw / 2 + 20, y + chh - 74, cw - 40, 40, 4);
-        g.fill();
-        g.globalAlpha = 1;
-        g.fillStyle = color;
-        g.font = '11px monospace';
-        g.fillText('集齐该流派 4 级的质变', x, y + chh - 54);
-      }
-
-      g.fillStyle = on ? color : COLORS.textDim;
+      g.fillStyle = on ? rc : COLORS.textDim;
       g.font = '11px monospace';
-      g.fillText(`${i + 1} · A`, x, y + chh - 22);
+      g.fillText(`${i + 1} · A`, x, y + chm - 14);
     }
+
+    // 重选按钮
+    const hasReroll = game.rerollsLeft > 0;
+    const bw = 128;
+    const bh = 34;
+    const bx = W - bw - 18;
+    const by = 28;
+    g.fillStyle = hasReroll ? 'rgba(26,34,40,0.96)' : 'rgba(18,24,28,0.8)';
+    roundRect(g, bx, by, bw, bh, 5);
+    g.fill();
+    g.strokeStyle = hasReroll ? COLORS.p1 : COLORS.grid;
+    g.lineWidth = hasReroll ? 1.5 : 1;
+    g.stroke();
+    g.textAlign = 'left';
+    g.fillStyle = hasReroll ? COLORS.textBright : COLORS.textDim;
+    g.font = '12px monospace';
+    g.fillText(`重选 ×${game.rerollsLeft}`, bx + 12, by + bh / 2 - 1);
+    g.fillStyle = hasReroll ? COLORS.p1 : COLORS.textDim;
+    g.font = '10px monospace';
+    g.fillText('Q / Y', bx + 84, by + bh / 2 - 1);
 
     g.textAlign = 'center';
     g.fillStyle = COLORS.textDim;
     g.font = '11px monospace';
-    g.fillText('← → 选择 · A 确认 · 1 2 3 直选 · Q 重选', W / 2, 448);
-    g.fillStyle = game.rerollsLeft > 0 ? COLORS.heal : COLORS.textDim;
-    g.fillText(`重选次数 ${game.rerollsLeft}`, W / 2, 468);
+    g.fillText('← → 选卡 · ↑ ↓ 选方向 · A 确认 · 1 2 3 直选', W / 2, 456);
     g.restore();
   }
 

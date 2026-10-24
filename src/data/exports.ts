@@ -5,8 +5,11 @@
 export { TANKS, SKINS, SKIN_BY_ID, TANK_BY_ID, FREE_TANKS } from './tanks';
 export type { TankDef, StatPoint, WeaponId, SignatureId, SkinDef } from './tanks';
 
-export { CARDS, CARD_BY_ID, SUPPLY_CARD, schoolCards, schoolUltimate } from './cards';
-export type { CardDef, Add, Mul, Flag } from './cards';
+export {
+  CARDS, CARD_BY_ID, SUPPLY_CARD, CARD_KINDS, KIND_NAMES, KIND_COLORS,
+  RARITIES, RARITY_NAMES, RARITY_COLORS, RARITY_WEIGHT, ELEMENT_NAMES, ELEMENT_COLORS,
+} from './cards';
+export type { CardDef, CardEvol, CardStep, CardKind, Rarity, Add, Mul, Flag } from './cards';
 
 export {
   ENEMIES, ENEMY_BY_ID, AFFIXES, AFFIX_BY_ID, BOSSES, WAVES, ROLLS,

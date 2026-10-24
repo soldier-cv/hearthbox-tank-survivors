@@ -46,6 +46,10 @@ export const CONFIG = {
     reviveTime: 2.2,
     reviveRadius: 48,
     reviveHpRatio: 0.5,
+    /** 导弹（装置卡）。 */
+    missileCd: 4,
+    missileSpeed: 340,
+    missileDmg: 0.55,
     /** 单次受击上限（比例）。 */
     maxHitRatio: 0.3,
     maxChargedHitRatio: 0.4,

@@ -570,6 +570,8 @@ export class Renderer {
         paint.light = '#ffffff';
       }
       if (e.slow > 0) paint.glow = COLORS.spark;
+      if (e.burnT > 0) paint.glow = COLORS.blast;
+      if (e.acidStacks > 0) paint.glow = '#b6e04a';
 
       drawTank(
         g,
@@ -582,6 +584,31 @@ export class Renderer {
         e.def.model,
         { t: time, moving: true, speed: Math.min(1, Math.hypot(e.vx, e.vy) / 90) },
       );
+
+      // 着火：头顶三簇火苗
+      if (e.burnT > 0) {
+        g.globalAlpha = 0.75;
+        g.fillStyle = COLORS.blast;
+        for (let k = 0; k < 3; k += 1) {
+          const a = time * 6 + k * 2.1;
+          g.beginPath();
+          g.arc(e.x + Math.cos(a) * e.r * 0.6, e.y + Math.sin(a) * e.r * 0.6 - e.r * 0.4 - k, 2, 0, Math.PI * 2);
+          g.fill();
+        }
+      }
+      // 冻结：脚下一圈冰晶
+      if (e.rootT > 0) {
+        g.globalAlpha = 0.6;
+        g.strokeStyle = '#c9f5fb';
+        g.lineWidth = 1.5;
+        for (let k = 0; k < 6; k += 1) {
+          const a = (Math.PI * 2 * k) / 6;
+          g.beginPath();
+          g.moveTo(e.x + Math.cos(a) * e.r, e.y + Math.sin(a) * e.r);
+          g.lineTo(e.x + Math.cos(a) * (e.r + 7), e.y + Math.sin(a) * (e.r + 7));
+          g.stroke();
+        }
+      }
       g.restore();
 
       // 护盾：六边形
