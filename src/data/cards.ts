@@ -104,6 +104,8 @@ export interface Add {
   stops?: number;
   /** 掉落率（0..1）。 */
   dropRate?: number;
+  /** 火箭。 */
+  rockets?: number;
 }
 
 /** 乘性修饰。 */
@@ -130,6 +132,9 @@ export interface Mul {
   teslaDmg?: number;
   missileCd?: number;
   missileDmg?: number;
+  rocketCd?: number;
+  rocketDmg?: number;
+  rocketR?: number;
   stopCd?: number;
   stopDur?: number;
 }
@@ -160,7 +165,9 @@ export type Flag =
   | 'railOverload'
   | 'railFast'
   | 'stopShort'
-  | 'stopLong';
+  | 'stopLong'
+  | 'rocketCluster'
+  | 'rocketFire';
 
 /** 一级效果。 */
 export interface CardStep {
@@ -401,6 +408,21 @@ export const CARDS: CardDef[] = [
     steps: [
       { desc: '每 4 秒齐射 2 发追踪导弹。', add: { missiles: 2 } },
       { desc: '再 +2 发。', add: { missiles: 2 } },
+    ],
+  },
+  {
+    id: 'rocket',
+    name: '火箭',
+    kind: 'device',
+    rarity: 'military',
+    steps: [
+      { desc: '每 6 秒向敌人最密的地方打一发火箭（半径 80，伤害 1.8×）。', add: { rockets: 1 } },
+      { desc: '伤害 +30%，半径 +18。', mul: { rocketDmg: 1.3, rocketR: 1.18 } },
+      { desc: '冷却 −20%，伤害 +30%。', mul: { rocketCd: 0.8, rocketDmg: 1.3 } },
+    ],
+    evolves: [
+      { id: 'cluster', name: '集束弹头', desc: '爆炸后再散落 3 个爆点。', flags: ['rocketCluster'] },
+      { id: 'napalm', name: '燃烧弹头', desc: '落点留下 4 秒火池。', flags: ['rocketFire'] },
     ],
   },
   {

@@ -91,6 +91,11 @@ export interface Bullet {
   chainBlast: number;
   /** 追踪转向速度（0 = 不追踪）。 */
   homing: number;
+  /** 寿命结束时爆炸（火箭）。 */
+  fuse: boolean;
+  /** 制导目标点（火箭用）。 */
+  tx: number;
+  ty: number;
   /** 这一发带的元素（0 = 无）。 */
   element: number;
   /** 元素等级（1..3）。 */
@@ -245,6 +250,9 @@ export interface Player {
   /** 导弹。 */
   missiles: number;
   missileCd: number;
+  /** 火箭。 */
+  rockets: number;
+  rocketCd: number;
   /** 轨道炮（卡）。 */
   railgun: boolean;
   railCdCard: number;
@@ -635,6 +643,8 @@ export class Game {
       homing: 0,
       missiles: 0,
       missileCd: 0,
+      rockets: 0,
+      rocketCd: 0,
       railgun: false,
       railCdCard: 0,
       railCharge: 0,
@@ -707,6 +717,7 @@ export class Game {
     p.bounce = nz(add.bounce);
     p.homing = nz(add.homing);
     p.missiles = Math.min(6, nz(add.missiles));
+    p.rockets = Math.min(2, nz(add.rockets));
     p.railgun = nz(add.railgun) > 0;
     p.kitStops = nz(add.stops);
     p.stopCdMax = p.flags.has('stopShort') ? 20 : p.flags.has('stopLong') ? 60 : 45;
@@ -862,7 +873,12 @@ export class Game {
     const target = this.aimPick(p);
     let want = p.angle;
     if (inp.aiming) want = inp.aimAngle;
-    else if (autoOn && target) want = Math.atan2(target.y - p.y, target.x - p.x);
+    else if (autoOn && target) {
+      // 提前量：按子弹飞行时间预测目标位置
+      const d = Math.hypot(target.x - p.x, target.y - p.y);
+      const t = d / Math.max(120, p.st.bulletSpeed);
+      want = Math.atan2(target.y + target.vy * t - p.y, target.x + target.vx * t - p.x);
+    }
     // 转向速度按秒算，不再按帧
     const turnRate = inp.aiming ? 16 + assist * 6 : autoOn && target ? 11 : 8;
     p.turretAngle += shortAngle(want, p.turretAngle) * (1 - Math.exp(-turnRate * dt));
@@ -964,6 +980,32 @@ export class Game {
       }
     }
 
+    // ---- 火箭：打向敌人最密的地方 ----
+    if (p.rockets > 0) {
+      p.rocketCd -= dt;
+      if (p.rocketCd <= 0) {
+        const spot = this.clusterPoint(p.x, p.y, 640, CONFIG.combat.rocketSeek);
+        if (spot) {
+          p.rocketCd = CONFIG.combat.rocketCd * nzp(p.mul.rocketCd);
+          const a = Math.atan2(spot.y - p.y, spot.x - p.x);
+          const dist = Math.hypot(spot.x - p.x, spot.y - p.y);
+          const rb = this.makeBullet(p.x, p.y, a, CONFIG.combat.rocketSpeed, p.st.dmg * CONFIG.combat.rocketDmg * nzp(p.mul.rocketDmg), false);
+          rb.owner = p.index;
+          rb.blast = CONFIG.combat.rocketRadius * nzp(p.mul.rocketR);
+          rb.fuse = true;
+          rb.tx = spot.x;
+          rb.ty = spot.y;
+          rb.life = Math.max(0.25, dist / CONFIG.combat.rocketSpeed);
+          rb.color = '#ff9f6b';
+          rb.size = 5;
+          this.bullets.push(rb);
+          this.o.audio.sfx('shoot', 0, 0.6);
+        } else {
+          p.rocketCd = 0.5;
+        }
+      }
+    }
+
     // ---- 轨道炮（卡）----
     if (p.railgun) {
       const charge = p.flags.has('railOverload') ? 0.7 : 0.35;
@@ -1051,6 +1093,50 @@ export class Game {
 
     if (p.index === 0) {
       this.o.fx.vignette = lowRatio < 0.3 ? Math.min(1, (0.3 - lowRatio) / 0.3) : 0;
+    }
+  }
+
+  /** 敌人最密的位置（火箭用）。 */
+  private clusterPoint(x: number, y: number, range: number, radius: number): { x: number; y: number } | null {
+    let best: { x: number; y: number } | null = null;
+    let bestScore = 0;
+    let bestDist = Infinity;
+    const r2 = radius * radius;
+    for (const e of this.enemies) {
+      if (!e.alive || e.dead) continue;
+      const d0 = dist2(x, y, e.x, e.y);
+      if (d0 > range * range) continue;
+      let score = 0;
+      for (const o of this.enemies) {
+        if (!o.alive || o.dead) continue;
+        if (dist2(e.x, e.y, o.x, o.y) <= r2) score += 1;
+      }
+      if (score > bestScore || (score === bestScore && d0 < bestDist)) {
+        bestScore = score;
+        bestDist = d0;
+        best = { x: e.x, y: e.y };
+      }
+    }
+    return best;
+  }
+
+  /** 火箭落点的弹头效果。 */
+  private rocketPayload(b: Bullet): void {
+    const owner = this.players[b.owner];
+    if (!owner) return;
+    if (owner.flags.has('rocketFire')) {
+      this.addPuddle(b.x, b.y, b.blast * 0.8, 8, 4);
+    }
+    if (owner.flags.has('rocketCluster')) {
+      for (let i = 0; i < 3; i += 1) {
+        const a = (Math.PI * 2 * i) / 3 + this.o.rng.angle() * 0.2;
+        this.booms.push({
+          alive: true, owner: b.owner,
+          x: b.x + Math.cos(a) * b.blast * 0.7,
+          y: b.y + Math.sin(a) * b.blast * 0.7,
+          r: b.blast * 0.6, dmg: b.dmg * 0.5, t: 0.18,
+        });
+      }
     }
   }
 
@@ -1311,6 +1397,9 @@ export class Game {
       doubleBlast: false,
       chainBlast: 0,
       homing: 0,
+      fuse: false,
+      tx: 0,
+      ty: 0,
       element: 0,
       elemLevel: 0,
       color: crit ? '#ffffff' : '#f3ecdd',
@@ -1449,6 +1538,21 @@ export class Game {
       b.px = b.x;
       b.py = b.y;
 
+      // 火箭制导：目标点跟着那团敌人走
+      if (b.fuse) {
+        const spot = this.clusterPoint(b.tx, b.ty, 170, 90);
+        if (spot) {
+          b.tx = spot.x;
+          b.ty = spot.y;
+        }
+        const want = Math.atan2(b.ty - b.y, b.tx - b.x);
+        const cur = Math.atan2(b.vy, b.vx);
+        const na = cur + shortAngle(want, cur) * Math.min(1, 7 * dt);
+        const sp = Math.hypot(b.vx, b.vy);
+        b.vx = Math.cos(na) * sp;
+        b.vy = Math.sin(na) * sp;
+      }
+
       // 追踪
       if (b.homing > 0) {
         const t = this.nearestEnemy(b.x, b.y, 520, false);
@@ -1467,6 +1571,10 @@ export class Game {
       b.life -= dt;
       if (b.life <= 0) {
         b.alive = false;
+        if (b.fuse) {
+          this.explode(b, b.x, b.y);
+          this.rocketPayload(b);
+        }
         continue;
       }
 

@@ -46,6 +46,12 @@ export const CONFIG = {
     reviveTime: 2.2,
     reviveRadius: 48,
     reviveHpRatio: 0.5,
+    /** 火箭（装置卡）：打向敌人最密处。 */
+    rocketCd: 6,
+    rocketSpeed: 320,
+    rocketDmg: 1.8,
+    rocketRadius: 80,
+    rocketSeek: 90,
     /** 导弹（装置卡）。 */
     missileCd: 4,
     missileSpeed: 340,
